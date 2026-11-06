@@ -692,12 +692,12 @@ void NODE_OT_resize(wmOperatorType *ot)
 bool node_has_hidden_sockets(bNode *node)
 {
   for (bNodeSocket &sock : node->inputs) {
-    if (sock.is_user_hidden()) {
+    if (sock.flag & SOCK_HIDDEN) {
       return true;
     }
   }
   for (bNodeSocket &sock : node->outputs) {
-    if (sock.is_user_hidden()) {
+    if (sock.flag & SOCK_HIDDEN) {
       return true;
     }
   }
@@ -932,7 +932,7 @@ static void node_duplicate_reparent_recursive(bNodeTree *ntree,
 
   /* Find first selected parent. */
   for (parent = node->parent; parent; parent = parent->parent) {
-    if (parent->is_selected()) {
+    if (parent->flag & SELECT) {
       if (!(parent->flag & NODE_TEST)) {
         node_duplicate_reparent_recursive(ntree, node_map, parent);
       }
@@ -1016,8 +1016,8 @@ static wmOperatorStatus node_duplicate_exec(bContext *C, wmOperator *op)
   for (bNodeLink &link : ntree->links) {
     /* This creates new links between copied nodes. If keep_inputs is set, also copies input links
      * from unselected (when fromnode is null)! */
-    if (link.tonode && link.tonode->is_selected() &&
-        (keep_inputs || (link.fromnode && link.fromnode->is_selected())))
+    if (link.tonode && (link.tonode->flag & NODE_SELECT) &&
+        (keep_inputs || (link.fromnode && (link.fromnode->flag & NODE_SELECT))))
     {
       bNodeLink *newlink = MEM_new<bNodeLink>("bNodeLink");
       newlink->flag = link.flag;
@@ -1028,7 +1028,7 @@ static wmOperatorStatus node_duplicate_exec(bContext *C, wmOperator *op)
         newlink->multi_input_sort_id = link.multi_input_sort_id;
       }
 
-      if (link.fromnode && link.fromnode->is_selected()) {
+      if (link.fromnode && (link.fromnode->flag & NODE_SELECT)) {
         newlink->fromnode = node_map.lookup(link.fromnode);
         newlink->fromsock = socket_map.lookup(link.fromsock);
       }
@@ -1244,7 +1244,7 @@ static void node_flag_toggle_exec(SpaceNode *snode,
   int tot_eq = 0, tot_neq = 0;
 
   for (bNode *node : snode->edittree->all_nodes()) {
-    if (node->is_selected()) {
+    if (node->flag & SELECT) {
 
       if (toggle_flag == NODE_PREVIEW && !node_is_previewable(*snode, *snode->edittree, *node)) {
         continue;
@@ -1264,7 +1264,7 @@ static void node_flag_toggle_exec(SpaceNode *snode,
     }
   }
   for (bNode *node : snode->edittree->all_nodes()) {
-    if (node->is_selected()) {
+    if (node->flag & SELECT) {
 
       if (toggle_flag == NODE_PREVIEW && !node_is_previewable(*snode, *snode->edittree, *node)) {
         continue;
@@ -1589,7 +1589,7 @@ static wmOperatorStatus node_socket_toggle_exec(bContext *C, wmOperator * /*op*/
   /* Toggle for all selected nodes */
   bool hidden = false;
   for (bNode *node : snode->edittree->all_nodes()) {
-    if (node->is_selected()) {
+    if (node->flag & SELECT) {
       if (node_has_hidden_sockets(node)) {
         hidden = true;
         break;
@@ -1598,7 +1598,7 @@ static wmOperatorStatus node_socket_toggle_exec(bContext *C, wmOperator * /*op*/
   }
 
   for (bNode *node : snode->edittree->all_nodes()) {
-    if (node->is_selected()) {
+    if (node->flag & SELECT) {
       node_set_hidden_sockets(node, !hidden);
     }
   }
@@ -1641,7 +1641,7 @@ static wmOperatorStatus node_mute_exec(bContext *C, wmOperator * /*op*/)
   ED_preview_kill_jobs(CTX_wm_manager(C), bmain);
 
   for (bNode *node : snode->edittree->all_nodes()) {
-    if (node->is_selected() && !node->typeinfo->no_muting) {
+    if ((node->flag & SELECT) && !node->typeinfo->no_muting) {
       node->flag ^= NODE_MUTED;
       BKE_ntree_update_tag_node_mute(snode->edittree, node);
     }
@@ -1670,68 +1670,6 @@ void NODE_OT_mute_toggle(wmOperatorType *ot)
 /** \} */
 
 /* -------------------------------------------------------------------- */
-/** \name Comment Edit Operator
- * \{ */
-
-static wmOperatorStatus node_comment_edit_invoke(bContext *C, wmOperator *op, const wmEvent *event)
-{
-  SpaceNode &snode = *CTX_wm_space_node(C);
-  ARegion &region = *CTX_wm_region(C);
-  const bool use_active = RNA_boolean_get(op->ptr, "use_active");
-
-  bNode *node;
-  if (use_active) {
-    node = bke::node_get_active(*snode.edittree);
-  }
-  else {
-    /* Don't interfere when the mouse is interacting with some button.  */
-    if (ISMOUSE_BUTTON(event->type) && ui::but_find_mouse_over(&region, event)) {
-      return OPERATOR_PASS_THROUGH | OPERATOR_CANCELLED;
-    }
-
-    float2 cursor;
-    ui::view2d_region_to_view(&region.v2d, event->mval[0], event->mval[1], &cursor.x, &cursor.y);
-    node = node_under_mouse_get(snode, cursor);
-  }
-
-  if (!node || !node->is_type("NodeComment"_ustr)) {
-    return OPERATOR_PASS_THROUGH;
-  }
-
-  NodeComment &storage = *static_cast<NodeComment *>(node->storage);
-  if (bool(storage.flag & NodeCommentFlag::Edit)) {
-    return OPERATOR_PASS_THROUGH;
-  }
-
-  storage.flag |= NodeCommentFlag::Edit;
-  WM_event_add_notifier(C, NC_NODE | NA_EDITED, nullptr);
-  WM_event_add_notifier(C, NC_NODE | ND_DISPLAY, nullptr);
-  return OPERATOR_FINISHED;
-}
-
-void NODE_OT_comment_edit(wmOperatorType *ot)
-{
-  ot->name = "Edit Comment";
-  ot->description = "Enter edit mode for the comment node under the cursor";
-  ot->idname = "NODE_OT_comment_edit";
-
-  ot->invoke = node_comment_edit_invoke;
-  ot->poll = ED_operator_node_editable;
-
-  ot->flag = OPTYPE_REGISTER;
-
-  PropertyRNA *prop = RNA_def_boolean(ot->srna,
-                                      "use_active",
-                                      false,
-                                      "Use Active",
-                                      "Edit the active comment node, rather than the one under "
-                                      "the cursor");
-  RNA_def_property_flag(prop, PROP_SKIP_SAVE | PROP_HIDDEN);
-}
-
-/** \} */
-
-/* -------------------------------------------------------------------- */
 /** \name Node Delete Operator
  * \{ */
 
@@ -1747,14 +1685,14 @@ static wmOperatorStatus node_delete_exec(bContext *C, wmOperator * /*op*/)
 
   /* Ensure child nodes propagate upwards through nested frames, when their parent is deleted. */
   for (bNode *node : snode->edittree->all_nodes()) {
-    if (node->is_selected()) {
+    if (node->flag & SELECT) {
       /* This node can be skipped, because it will be deleted anyway. */
       continue;
     }
 
     /* Set the parent of the node to the lowest frame that is not going to be deleted. */
     for (bNode *parent = node->parent; parent; parent = parent->parent) {
-      if (!parent->is_selected()) {
+      if ((parent->flag & SELECT) == 0) {
         node->parent = parent;
         break;
       }
@@ -1762,7 +1700,7 @@ static wmOperatorStatus node_delete_exec(bContext *C, wmOperator * /*op*/)
   }
 
   for (bNode &node : snode->edittree->nodes.items_mutable()) {
-    if (node.is_selected()) {
+    if (node.flag & SELECT) {
       bke::node_remove_node(bmain, *snode->edittree, node, true);
     }
   }
@@ -1808,7 +1746,7 @@ static wmOperatorStatus node_delete_reconnect_exec(bContext *C, wmOperator * /*o
   node_select_paired(*snode->edittree);
 
   for (bNode &node : snode->edittree->nodes.items_mutable()) {
-    if (node.is_selected()) {
+    if (node.flag & SELECT) {
       bke::node_internal_relink(*snode->edittree, node);
       bke::node_remove_node(bmain, *snode->edittree, node, true);
 
@@ -1857,7 +1795,7 @@ static wmOperatorStatus node_copy_color_exec(bContext *C, wmOperator * /*op*/)
   }
 
   for (bNode *node : ntree.all_nodes()) {
-    if (node->is_selected() && node != active_node) {
+    if (node->flag & NODE_SELECT && node != active_node) {
       if (active_node->flag & NODE_CUSTOM_COLOR) {
         node->flag |= NODE_CUSTOM_COLOR;
         copy_v3_v3(node->color, active_node->color);

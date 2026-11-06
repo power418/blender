@@ -309,16 +309,7 @@ static void action_foreach_id(ID *id, LibraryForeachIDData *data)
 
 static void write_channelbag(BlendWriter *writer, animrig::Channelbag &channelbag)
 {
-  writer->write_struct_cast<ActionChannelbag>(
-      &channelbag, [](BlendStructWriter<ActionChannelbag> &struct_writer) {
-        ActionChannelbag &shallow_bag = struct_writer.shallow_data;
-        if (shallow_bag.group_array_num == 0) {
-          shallow_bag.group_array = nullptr;
-        }
-        if (shallow_bag.fcurve_array_num == 0) {
-          shallow_bag.fcurve_array = nullptr;
-        }
-      });
+  writer->write_struct_cast<ActionChannelbag>(&channelbag);
 
   Span<bActionGroup *> groups = channelbag.channel_groups();
   writer->write_pointer_array(groups.size(), groups.data());
@@ -329,8 +320,8 @@ static void write_channelbag(BlendWriter *writer, animrig::Channelbag &channelba
   Span<FCurve *> fcurves = channelbag.fcurves();
   writer->write_pointer_array(fcurves.size(), fcurves.data());
   for (FCurve *fcurve : fcurves) {
-    writer->write_struct(fcurve, [](BlendStructWriter<FCurve> &struct_writer) {
-      struct_writer.shallow_data.runtime = nullptr;
+    writer->write_struct(fcurve, [](BlendStructWriter &struct_writer) {
+      struct_writer.runtime_ptr(offsetof(FCurve, runtime));
     });
     BKE_fcurve_blend_write_data(writer, fcurve);
   }
@@ -382,9 +373,12 @@ static void write_slots(BlendWriter *writer, Span<animrig::Slot *> slots)
 {
   writer->write_pointer_array(slots.size(), slots.data());
   for (animrig::Slot *slot : slots) {
-    writer->write_struct_cast<ActionSlot>(slot, [](BlendStructWriter<ActionSlot> &struct_writer) {
-      struct_writer.shallow_data.runtime = nullptr;
-    });
+    /* Make a shallow copy using the C type, so that no new runtime struct is
+     * allocated for the copy. */
+    ActionSlot shallow_copy = *slot;
+    shallow_copy.runtime = nullptr;
+
+    writer->write_struct_at_address(slot, &shallow_copy);
   }
 }
 
@@ -761,7 +755,6 @@ IDTypeInfo IDType_ID_AC = {
     .foreach_cache = nullptr,
     .foreach_path = nullptr,
     .foreach_working_space_color = nullptr,
-    .foreach_asset_weak_reference = nullptr,
     .owner_pointer_get = nullptr,
 
     .blend_write = bke::action_blend_write,
@@ -1909,9 +1902,7 @@ void BKE_pose_blend_write(BlendWriter *writer, bPose *pose)
 
     bke::motionpath::blend_write(writer, chan.mpath);
 
-    writer->write_struct(&chan, [](BlendStructWriter<bPoseChannel> &struct_writer) {
-      struct_writer.shallow_data.runtime = {};
-    });
+    writer->write_struct(&chan);
   }
 
   /* Write groups */
@@ -1928,8 +1919,8 @@ void BKE_pose_blend_write(BlendWriter *writer, bPose *pose)
   }
 
   /* Write this pose */
-  writer->write_struct(pose, [](BlendStructWriter<bPose> &struct_writer) {
-    struct_writer.shallow_data.runtime = nullptr;
+  writer->write_struct(pose, [](BlendStructWriter &struct_writer) {
+    struct_writer.runtime_ptr(offsetof(bPose, runtime));
   });
 }
 

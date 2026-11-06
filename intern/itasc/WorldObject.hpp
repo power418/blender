@@ -28,4 +28,4 @@ protected:
 
 }
 
-#endif /* WORLDOBJECT_HPP_ */
+#endif /* WORLDOBJECT_H_ */

@@ -14,10 +14,7 @@
 #include "gpu_shader_math_vector_reduce.bsl.hh"
 #include "gpu_shader_math_vector_safe.bsl.hh"
 
-float4 linearstep(float p0, float p1, float4 v)
-{
-  return saturate((v - p0) / abs(p1 - p0));
-}
+#define linearstep(p0, p1, v) (clamp(((v) - (p0)) / abs((p1) - (p0)), 0.0f, 1.0f))
 
 namespace eevee::dof::scatter {
 

@@ -15,7 +15,6 @@
 
 #include "BLF_api.hh"
 
-#include "BLI_enum_flags.hh"
 #include "BLI_map.hh"
 #include "BLI_mutex.hh"
 #include "BLI_vector.hh"
@@ -178,16 +177,6 @@ struct GlyphCacheBLF {
   ~GlyphCacheBLF();
 };
 
-enum class GlyphFlagBLF : uint8_t {
-  None = 0,
-  /**
-   * Drawn over the previous base glyph, see #blf_glyph_is_combining.
-   * Independent of the font size, so this is the same for a glyph at every size.
-   */
-  Combining = (1 << 0),
-};
-ENUM_OPERATORS(GlyphFlagBLF);
-
 struct GlyphBLF {
   /** The character, as UTF32. */
   unsigned int c;
@@ -203,7 +192,6 @@ struct GlyphBLF {
 
   ft_pix advance_x;
   uint8_t subpixel;
-  GlyphFlagBLF flags;
 
   /** The difference in bearings when hinting is active, zero otherwise. */
   ft_pix lsb_delta;

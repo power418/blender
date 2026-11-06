@@ -326,7 +326,7 @@ ShapeCache::ShapeCache()
                       bone_octahedral_solid_normals[tri]});
       }
     }
-    bone_octahedron = make_batch(
+    bone_octahedron = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_TRIS, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   {
@@ -339,9 +339,8 @@ ShapeCache::ShapeCache()
     gpu::IndexBuf *ibo = GPU_indexbuf_build(&elb);
 
     /* NOTE: Reuses the same VBO as bone_octahedron. Thus has the same vertex format. */
-    gpu::Batch *octahedron_solid = bone_octahedron->gpu_batch();
-    bone_octahedron_wire = make_batch(GPU_batch_create_ex(
-        GPU_PRIM_LINES_ADJ, octahedron_solid->verts[0], ibo, GPU_BATCH_OWNS_INDEX));
+    bone_octahedron_wire = BatchPtr(GPU_batch_create_ex(
+        GPU_PRIM_LINES_ADJ, bone_octahedron.get()->verts[0], ibo, GPU_BATCH_OWNS_INDEX));
   }
 
   /* Armature Sphere. */
@@ -355,13 +354,12 @@ ShapeCache::ShapeCache()
       verts.append({{cv.x, cv.y, 0.0f}, VCLASS_EMPTY_SCALED});
     }
 
-    bone_sphere = make_batch(GPU_batch_create_ex(
+    bone_sphere = BatchPtr(GPU_batch_create_ex(
         GPU_PRIM_TRI_FAN, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   {
-    gpu::Batch *sphere_solid = bone_sphere->gpu_batch();
-    bone_sphere_wire = make_batch(
-        GPU_batch_create(GPU_PRIM_LINE_STRIP, sphere_solid->verts[0], nullptr));
+    bone_sphere_wire = BatchPtr(
+        GPU_batch_create(GPU_PRIM_LINE_STRIP, bone_sphere.get()->verts[0], nullptr));
   }
 
   /* Armature Stick. */
@@ -401,7 +399,7 @@ ShapeCache::ShapeCache()
       verts.append({{cv2.x, cv2.y, 0.0f}, StickBoneFlag(POS_TAIL | COL_TAIL | COL_WIRE)});
     }
 
-    bone_stick = make_batch(
+    bone_stick = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_TRIS, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
 
@@ -415,7 +413,7 @@ ShapeCache::ShapeCache()
                       bone_box_solid_normals[tri]});
       }
     }
-    bone_box = make_batch(
+    bone_box = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_TRIS, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   {
@@ -428,9 +426,8 @@ ShapeCache::ShapeCache()
     gpu::IndexBuf *ibo = GPU_indexbuf_build(&elb);
 
     /* NOTE: Reuses the same VBO as bone_box. Thus has the same vertex format. */
-    gpu::Batch *box_solid = bone_box->gpu_batch();
-    bone_box_wire = make_batch(
-        GPU_batch_create_ex(GPU_PRIM_LINES_ADJ, box_solid->verts[0], ibo, GPU_BATCH_OWNS_INDEX));
+    bone_box_wire = BatchPtr(GPU_batch_create_ex(
+        GPU_PRIM_LINES_ADJ, bone_box.get()->verts[0], ibo, GPU_BATCH_OWNS_INDEX));
   }
 
   /* Armature Envelope. */
@@ -458,7 +455,7 @@ ShapeCache::ShapeCache()
       verts.append({lat_lon_to_co(M_PI, lon + lon_inc), VCLASS_NONE});
     }
 
-    bone_envelope = make_batch(GPU_batch_create_ex(
+    bone_envelope = BatchPtr(GPU_batch_create_ex(
         GPU_PRIM_TRI_STRIP, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   {
@@ -476,7 +473,7 @@ ShapeCache::ShapeCache()
       verts.append({v0, v1, v2});
     }
 
-    bone_envelope_wire = make_batch(GPU_batch_create_ex(
+    bone_envelope_wire = BatchPtr(GPU_batch_create_ex(
         GPU_PRIM_LINE_STRIP, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
 
@@ -518,7 +515,7 @@ ShapeCache::ShapeCache()
       }
     }
 
-    bone_degrees_of_freedom = make_batch(
+    bone_degrees_of_freedom = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_TRIS, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   {
@@ -531,7 +528,7 @@ ShapeCache::ShapeCache()
       verts.append({{cv.x, cv.y, 0.0f}, VCLASS_NONE});
     }
 
-    bone_degrees_of_freedom_wire = make_batch(GPU_batch_create_ex(
+    bone_degrees_of_freedom_wire = BatchPtr(GPU_batch_create_ex(
         GPU_PRIM_LINE_STRIP, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
 
@@ -547,7 +544,7 @@ ShapeCache::ShapeCache()
     verts.append({{+1.0f, -1.0f, 0.0f}, VCLASS_EMPTY_SCALED});
     verts.append({{-1.0f, -1.0f, 0.0f}, VCLASS_EMPTY_SCALED});
 
-    quad_wire = make_batch(
+    quad_wire = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* quad_solid */
@@ -557,7 +554,7 @@ ShapeCache::ShapeCache()
     for (const float2 &point : quad) {
       verts.append({{point, 0.0f}, VCLASS_EMPTY_SCALED});
     }
-    quad_solid = make_batch(GPU_batch_create_ex(
+    quad_solid = BatchPtr(GPU_batch_create_ex(
         GPU_PRIM_TRI_STRIP, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* plain_axes */
@@ -570,7 +567,7 @@ ShapeCache::ShapeCache()
     verts.append({{0.0f, 0.0f, -1.0f}, VCLASS_EMPTY_SCALED});
     verts.append({{0.0f, 0.0f, +1.0f}, VCLASS_EMPTY_SCALED});
 
-    plain_axes = make_batch(
+    plain_axes = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* single_arrow */
@@ -600,7 +597,7 @@ ShapeCache::ShapeCache()
     verts.append({{0.0f, 0.0f, 0.0}, VCLASS_EMPTY_SCALED});
     verts.append({{0.0f, 0.0f, 0.75f}, VCLASS_EMPTY_SCALED});
 
-    single_arrow = make_batch(
+    single_arrow = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* cube */
@@ -613,12 +610,12 @@ ShapeCache::ShapeCache()
       verts.append({{x, y, z}, VCLASS_EMPTY_SCALED});
     }
 
-    cube = make_batch(
+    cube = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* cube_solid */
   {
-    cube_solid = make_batch(GPU_batch_unit_cube());
+    cube_solid = BatchPtr(GPU_batch_unit_cube());
   }
   /* circle */
   {
@@ -633,14 +630,14 @@ ShapeCache::ShapeCache()
       verts.append({{cv2.x, 0.0f, cv2.y}, VCLASS_EMPTY_SCALED});
     }
 
-    circle = make_batch(
+    circle = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* empty_sphere */
   {
     Vector<Vertex> verts = sphere_axes_circles(1.0f, VCLASS_EMPTY_SCALED, 32);
 
-    empty_sphere = make_batch(
+    empty_sphere = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* empty_cone */
@@ -661,7 +658,7 @@ ShapeCache::ShapeCache()
       }
     }
 
-    empty_cone = make_batch(
+    empty_cone = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* cylinder */
@@ -678,7 +675,7 @@ ShapeCache::ShapeCache()
       verts.append({{point.x, point.y, 1.0f}, VCLASS_EMPTY_SCALED});
       verts.append({{point.x, point.y, -1.0f}, VCLASS_EMPTY_SCALED});
     }
-    cylinder = make_batch(
+    cylinder = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* capsule body */
@@ -689,7 +686,7 @@ ShapeCache::ShapeCache()
       verts.append({{point.x, point.y, 1.0f}, VCLASS_NONE});
       verts.append({{point.x, point.y, 0.0f}, VCLASS_NONE});
     }
-    capsule_body = make_batch(
+    capsule_body = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* capsule cap */
@@ -709,7 +706,7 @@ ShapeCache::ShapeCache()
       verts.append({{0.0f, point.x, point.y}, VCLASS_NONE});
       verts.append({{0.0f, next_point.x, next_point.y}, VCLASS_NONE});
     }
-    capsule_cap = make_batch(
+    capsule_cap = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* arrows */
@@ -794,7 +791,7 @@ ShapeCache::ShapeCache()
         verts.append({{axis_name_vert * 4.0f, pos_on_axis + 0.25f}, flag});
       }
     }
-    arrows = make_batch(
+    arrows = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* metaball_wire_circle */
@@ -808,7 +805,7 @@ ShapeCache::ShapeCache()
       float2 cv = ring[i % resolution];
       verts.append({{cv[0], cv[1], 0.0f}, VCLASS_SCREENALIGNED});
     }
-    metaball_wire_circle = make_batch(GPU_batch_create_ex(
+    metaball_wire_circle = BatchPtr(GPU_batch_create_ex(
         GPU_PRIM_LINE_STRIP, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   };
   /* speaker */
@@ -839,7 +836,7 @@ ShapeCache::ShapeCache()
       vertex.pos.z += step_z;
       verts.append(vertex);
     }
-    speaker = make_batch(
+    speaker = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* camera distances */
@@ -858,7 +855,7 @@ ShapeCache::ShapeCache()
     for (const float2 &point : cross) {
       verts.append({{point.x, point.y, 2.0f}, VCLASS_CAMERA_DIST});
     }
-    camera_distances = make_batch(
+    camera_distances = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* camera frame */
@@ -872,7 +869,7 @@ ShapeCache::ShapeCache()
       verts.append({{point.x, point.y, 1.0f}, VCLASS_CAMERA_FRAME});
       verts.append({{point.x, point.y, 0.0f}, VCLASS_CAMERA_FRAME});
     }
-    camera_frame = make_batch(
+    camera_frame = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* camera tria */
@@ -881,7 +878,7 @@ ShapeCache::ShapeCache()
     Vector<Vertex> verts;
     /* Wire */
     append_line_loop(verts, triangle, 1.0f, VCLASS_CAMERA_FRAME);
-    camera_tria_wire = make_batch(
+    camera_tria_wire = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
 
     verts.clear();
@@ -889,7 +886,7 @@ ShapeCache::ShapeCache()
     for (const float2 &point : triangle) {
       verts.append({{point.x, point.y, 1.0f}, VCLASS_CAMERA_FRAME});
     }
-    camera_tria = make_batch(
+    camera_tria = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_TRIS, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* camera volume */
@@ -904,7 +901,7 @@ ShapeCache::ShapeCache()
         verts.append({{x, y, z}, VCLASS_CAMERA_FRAME | VCLASS_CAMERA_VOLUME});
       }
     }
-    camera_volume = make_batch(
+    camera_volume = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_TRIS, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* camera volume wire */
@@ -916,14 +913,14 @@ ShapeCache::ShapeCache()
       const float z = bone_box_verts[i][1];
       verts.append({{x, y, z}, VCLASS_CAMERA_FRAME | VCLASS_CAMERA_VOLUME});
     }
-    camera_volume_wire = make_batch(
+    camera_volume_wire = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* spheres */
   {
     Vector<VertShaded> verts;
     append_sphere(verts, DRW_LOD_LOW);
-    sphere_low_detail = make_batch(
+    sphere_low_detail = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_TRIS, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* ground line */
@@ -937,7 +934,7 @@ ShapeCache::ShapeCache()
     verts.append({{0.0, 0.0, 1.0}, VCLASS_NONE});
     verts.append({{0.0, 0.0, 0.0}, VCLASS_NONE});
 
-    ground_line = make_batch(
+    ground_line = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* image_quad */
@@ -947,7 +944,7 @@ ShapeCache::ShapeCache()
     for (const float2 &point : quad) {
       verts.append({{point, 0.75f}, VCLASS_NONE});
     }
-    image_quad = make_batch(GPU_batch_create_ex(
+    image_quad = BatchPtr(GPU_batch_create_ex(
         GPU_PRIM_TRI_STRIP, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* light spot volume */
@@ -963,7 +960,7 @@ ShapeCache::ShapeCache()
       const float c = cosf(-angle);
       verts.append({{s, c, -1.0f}, VCLASS_LIGHT_SPOT_SHAPE});
     }
-    light_spot_volume = make_batch(GPU_batch_create_ex(
+    light_spot_volume = BatchPtr(GPU_batch_create_ex(
         GPU_PRIM_TRI_FAN, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* light icon outer lines */
@@ -973,7 +970,7 @@ ShapeCache::ShapeCache()
 
     Vector<Vertex> verts;
     append_line_loop(verts, ring, 0.0f, VCLASS_SCREENSPACE, true);
-    light_icon_outer_lines = make_batch(
+    light_icon_outer_lines = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* light icon inner lines */
@@ -986,7 +983,7 @@ ShapeCache::ShapeCache()
     append_line_loop(verts, diamond, 0.0f, VCLASS_SCREENSPACE);
     append_line_loop(verts, ring, 0.0f, VCLASS_SCREENSPACE, true);
 
-    light_icon_inner_lines = make_batch(
+    light_icon_inner_lines = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* light icon sun rays */
@@ -1003,7 +1000,7 @@ ShapeCache::ShapeCache()
         verts.append({{scaled.x, scaled.y, 0.0f}, VCLASS_SCREENSPACE});
       }
     }
-    light_icon_sun_rays = make_batch(
+    light_icon_sun_rays = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* light point lines */
@@ -1012,7 +1009,7 @@ ShapeCache::ShapeCache()
 
     Vector<Vertex> verts;
     append_line_loop(verts, ring, 0.0f, VCLASS_SCREENALIGNED | VCLASS_LIGHT_AREA_SHAPE);
-    light_point_lines = make_batch(
+    light_point_lines = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* light sun lines */
@@ -1021,7 +1018,7 @@ ShapeCache::ShapeCache()
     /* Direction Line */
     verts.append({{0.0, 0.0, 0.0}, VCLASS_NONE});
     verts.append({{0.0, 0.0, -20.0}, VCLASS_NONE}); /* Good default. */
-    light_sun_lines = make_batch(
+    light_sun_lines = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* light spot lines */
@@ -1042,7 +1039,7 @@ ShapeCache::ShapeCache()
 
     light_append_direction_line(verts);
 
-    light_spot_lines = make_batch(
+    light_spot_lines = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* light area disk lines */
@@ -1055,7 +1052,7 @@ ShapeCache::ShapeCache()
 
     light_append_direction_line(verts);
 
-    light_area_disk_lines = make_batch(
+    light_area_disk_lines = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* light area square lines */
@@ -1068,7 +1065,7 @@ ShapeCache::ShapeCache()
 
     light_append_direction_line(verts);
 
-    light_area_square_lines = make_batch(
+    light_area_square_lines = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* field_force */
@@ -1088,7 +1085,7 @@ ShapeCache::ShapeCache()
       append_line_loop(verts, ring, 0.0f, flag);
     }
 
-    field_force = make_batch(
+    field_force = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* field_wind */
@@ -1103,7 +1100,7 @@ ShapeCache::ShapeCache()
       append_line_loop(verts, ring, z, VCLASS_EMPTY_SIZE);
     }
 
-    field_wind = make_batch(
+    field_wind = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* field_vortex */
@@ -1121,7 +1118,7 @@ ShapeCache::ShapeCache()
       const float2 point = ring[abs(spiral_resol - i) % spiral_resol] * r;
       verts.append({float3(point.y, point.x, 0.0f), VCLASS_EMPTY_SIZE});
     }
-    field_vortex = make_batch(GPU_batch_create_ex(
+    field_vortex = BatchPtr(GPU_batch_create_ex(
         GPU_PRIM_LINE_STRIP, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* field_curve */
@@ -1133,7 +1130,7 @@ ShapeCache::ShapeCache()
 
     append_line_loop(verts, ring, 0.0f, VCLASS_EMPTY_SIZE | VCLASS_SCREENALIGNED);
 
-    field_curve = make_batch(
+    field_curve = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* field_sphere_limit */
@@ -1145,7 +1142,7 @@ ShapeCache::ShapeCache()
 
     append_line_loop(verts, ring, 0.0f, VCLASS_EMPTY_SIZE | VCLASS_SCREENALIGNED, true);
 
-    field_sphere_limit = make_batch(
+    field_sphere_limit = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* field_tube_limit */
@@ -1170,7 +1167,7 @@ ShapeCache::ShapeCache()
       }
     }
 
-    field_tube_limit = make_batch(
+    field_tube_limit = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* field_cone_limit */
@@ -1195,7 +1192,7 @@ ShapeCache::ShapeCache()
       }
     }
 
-    field_cone_limit = make_batch(
+    field_cone_limit = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* lightprobe_cube */
@@ -1230,7 +1227,7 @@ ShapeCache::ShapeCache()
       light_append_direction_line(axis, diamond, verts);
     }
 
-    lightprobe_cube = make_batch(
+    lightprobe_cube = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* lightprobe_planar */
@@ -1248,7 +1245,7 @@ ShapeCache::ShapeCache()
     Vector<Vertex> verts;
 
     append_line_loop(verts, points, 0.0f, VCLASS_SCREENSPACE);
-    lightprobe_planar = make_batch(
+    lightprobe_planar = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* lightprobe_grid */
@@ -1287,7 +1284,7 @@ ShapeCache::ShapeCache()
       light_append_direction_line(axis, diamond, verts);
     }
 
-    lightprobe_grid = make_batch(
+    lightprobe_grid = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* grid */
@@ -1312,7 +1309,7 @@ ShapeCache::ShapeCache()
         verts.append(Vertex{{steps[x + 1], steps[y + 1], 0.0f}});
       }
     }
-    grid = make_batch(
+    grid = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_TRIS, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* cursor circle */
@@ -1330,7 +1327,7 @@ ShapeCache::ShapeCache()
                     (i % 2 == 0) ? color_secondary : color_primary});
     }
 
-    cursor_circle = make_batch(GPU_batch_create_ex(
+    cursor_circle = BatchPtr(GPU_batch_create_ex(
         GPU_PRIM_LINE_STRIP, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
   /* cursor lines */
@@ -1369,7 +1366,7 @@ ShapeCache::ShapeCache()
       verts.append({inner_limit * axis, crosshair_color});
     }
 
-    cursor_lines = make_batch(
+    cursor_lines = BatchPtr(
         GPU_batch_create_ex(GPU_PRIM_LINES, vbo_from_vector(verts), nullptr, GPU_BATCH_OWNS_VBO));
   }
 }

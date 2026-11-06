@@ -10,9 +10,6 @@
 #  include "device/cuda/graphics_interop.h"
 #  include "device/cuda/kernel.h"
 
-#  include "kernel/device/gpu/block_sizes.h"
-#  include "util/debug.h"
-
 CCL_NAMESPACE_BEGIN
 
 /* CUDADeviceQueue */
@@ -30,39 +27,51 @@ CUDADeviceQueue::~CUDADeviceQueue()
   cuStreamDestroy(cuda_stream_);
 }
 
-ConcurrentStatesParams CUDADeviceQueue::concurrent_states_params() const
+int CUDADeviceQueue::num_concurrent_states(const size_t state_size) const
 {
   const int max_num_threads = cuda_device_->get_num_multiprocessors() *
                               cuda_device_->get_max_num_threads_per_multiprocessor();
 
-  /* Benefit stops being measurable at around 10x the baseline. */
-  ConcurrentStatesParams params;
-  params.baseline = max(max_num_threads, 65536) * 16;
-  params.min = params.baseline / 2;
-  params.max = params.baseline * 10;
-  return params;
-}
-
-void CUDADeviceQueue::get_memory_info(size_t &total, size_t &free) const
-{
-  cuda_device_->get_device_memory_info(total, free);
-}
-
-int CUDADeviceQueue::num_sort_partitions(int max_num_paths, uint max_scene_shaders) const
-{
-  /* Sort partitioning becomes less effective when more shaders are in the wavefront. Also need to
-   * ensure the amount of shared memory required is within the limit. */
-  if (max_scene_shaders < min(300, cuda_device_->max_shared_mem_bytes / (int)sizeof(int))) {
-    return max(max_num_paths / 65536, 1);
+  /* On laptops and GPUs with 4GB or less VRAM (such as RTX 3050 Laptop), limit the default
+   * multiplier from 16 to 4. This reduces concurrent integrator states from 1,048,576 to 262,144,
+   * saving ~75% VRAM and avoiding severe power transient spikes (voltage droop) and TDR hangs. */
+  int multiplier = 16;
+  size_t total_mem = 0, free_mem = 0;
+  cuda_device_->get_device_memory_info(total_mem, free_mem);
+  if (total_mem != 0 &&
+      total_mem <= (4ULL * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
+  {
+    multiplier = 4;
   }
-  else {
-    return 1;
+  int num_states = max(max_num_threads, 65536) * multiplier;
+
+  const char *factor_str = getenv("CYCLES_CONCURRENT_STATES_FACTOR");
+  if (factor_str) {
+    const float factor = (float)atof(factor_str);
+    if (factor != 0.0f) {
+      num_states = max((int)(num_states * factor), 1024);
+    }
+    else {
+      LOG_TRACE << "CYCLES_CONCURRENT_STATES_FACTOR evaluated to 0";
+    }
   }
+
+  LOG_TRACE << "GPU queue concurrent states: " << num_states << ", using up to "
+            << string_human_readable_size(num_states * state_size);
+
+  return num_states;
 }
 
-bool CUDADeviceQueue::supports_local_atomic_sort() const
+int CUDADeviceQueue::num_concurrent_busy_states(const size_t /*state_size*/) const
 {
-  return DebugFlags().cuda.use_local_atomic_sort;
+  const int max_num_threads = cuda_device_->get_num_multiprocessors() *
+                              cuda_device_->get_max_num_threads_per_multiprocessor();
+
+  if (max_num_threads == 0) {
+    return 65536;
+  }
+
+  return 4 * max_num_threads;
 }
 
 void CUDADeviceQueue::init_execution()
@@ -105,8 +114,9 @@ bool CUDADeviceQueue::enqueue(DeviceKernel kernel,
 
   /* Compute kernel launch parameters. */
   const CUDADeviceKernel &cuda_kernel = cuda_device_->kernels.get(kernel);
+  const int num_threads_per_block = cuda_kernel.num_threads_per_block;
+  const int num_blocks = divide_up(work_size, num_threads_per_block);
 
-  int num_threads_per_block = cuda_kernel.num_threads_per_block;
   int shared_mem_bytes = 0;
 
   switch (kernel) {
@@ -122,17 +132,9 @@ bool CUDADeviceQueue::enqueue(DeviceKernel kernel,
       shared_mem_bytes = (num_threads_per_block + 1) * sizeof(int);
       break;
 
-    case DEVICE_KERNEL_INTEGRATOR_SORT_BUCKET_PASS:
-    case DEVICE_KERNEL_INTEGRATOR_SORT_WRITE_PASS:
-      num_threads_per_block = GPU_PARALLEL_SORT_BLOCK_SIZE;
-      shared_mem_bytes = cuda_device_->scene_max_shaders_ * sizeof(int);
-      break;
-
     default:
       break;
   }
-
-  const int num_blocks = divide_up(work_size, num_threads_per_block);
 
   /* Launch kernel. */
   assert_success(cuLaunchKernel(cuda_kernel.function,
@@ -216,10 +218,6 @@ void CUDADeviceQueue::copy_to_device(device_memory &mem)
   assert(d_ptr != 0);
   assert(mem.host_pointer != nullptr);
 
-  if (mem.is_shared(cuda_device_) && mem.host_pointer == mem.shared_pointer) {
-    return;
-  }
-
   /* Copy memory to device. */
   const CUDAContextScope scope(cuda_device_);
   assert_success(
@@ -237,10 +235,6 @@ void CUDADeviceQueue::copy_from_device(device_memory &mem)
 
   assert(mem.device_pointer != 0);
   assert(mem.host_pointer != nullptr);
-
-  if (mem.is_shared(cuda_device_) && mem.host_pointer == mem.shared_pointer) {
-    return;
-  }
 
   /* Copy memory from device. */
   const CUDAContextScope scope(cuda_device_);

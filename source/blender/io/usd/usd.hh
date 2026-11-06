@@ -4,8 +4,6 @@
 
 #pragma once
 
-#include <string>
-
 #include "../common/IO_orientation.hh"
 
 #include "DEG_depsgraph.hh"

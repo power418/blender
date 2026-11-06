@@ -890,7 +890,7 @@ static ui::Block *merged_element_search_menu(bContext *C, ARegion *region, void 
                          nullptr,
                          merged_element_search_update_fn,
                          data,
-                         nullptr,
+                         false,
                          nullptr,
                          merged_element_search_exec_fn,
                          nullptr);
@@ -925,8 +925,7 @@ void merged_element_search_menu_invoke(bContext *C,
   select_data->parent_element = parent_te;
   select_data->select_element = activate_te;
 
-  popup_block_invoke(
-      C, merged_element_search_menu, select_data, ui::but_func_argN_free<MergedSearchData>);
+  popup_block_invoke(C, merged_element_search_menu, select_data, MEM_delete_void);
 }
 
 static void object_select_fn(bContext *C,
@@ -3193,7 +3192,7 @@ static const EnumPropertyItem *outliner_id_operation_itemf(bContext *C,
       continue;
     }
     if (it->value == OUTLINER_IDOP_PACK) {
-      /* Include Pack operation in context menu just for tree elements that represent image IDs. */
+      /* Include Pack operation in context menu just for tree elements that repsents image IDs. */
       const SpaceOutliner *space_outliner = CTX_wm_space_outliner(C);
       const TreeElement *te = get_target_element(space_outliner);
       const TreeStoreElem *tselem = TREESTORE(te);

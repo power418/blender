@@ -254,8 +254,7 @@ enum {
   { \
     void *_args[] = {__VA_ARGS__}; \
     if (bpy_bm_generic_valid_check_source(bm, errmsg, _args, ARRAY_SIZE(_args)) == -1) \
-        [[unlikely]] \
-    { \
+        [[unlikely]] { \
       return NULL; \
     } \
   } \
@@ -264,8 +263,7 @@ enum {
   { \
     void *_args[] = {__VA_ARGS__}; \
     if (bpy_bm_generic_valid_check_source(bm, errmsg, _args, ARRAY_SIZE(_args)) == -1) \
-        [[unlikely]] \
-    { \
+        [[unlikely]] { \
       return -1; \
     } \
   } \

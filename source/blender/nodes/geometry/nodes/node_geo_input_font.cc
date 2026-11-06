@@ -53,11 +53,6 @@ class InputFontOperation : public NodeOperation {
     result.allocate_single_value();
     result.set_single_value(font);
   }
-
-  bool uses_asynchronous_execution() const override
-  {
-    return false;
-  }
 };
 
 static NodeOperation *get_compositor_operation(Context &context, const bNode &node)

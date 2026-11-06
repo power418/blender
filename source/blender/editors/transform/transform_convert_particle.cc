@@ -38,6 +38,7 @@ static void createTransParticleVerts(bContext * /*C*/, TransInfo *t)
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
 
     TransData *td = nullptr;
+    TransDataExtension *tx;
     BKE_view_layer_synced_ensure(*t->bmain, t->scene, t->view_layer);
     Object *ob = BKE_view_layer_active_object_get(t->view_layer);
     ParticleEditSettings *pset = PE_settings(t->scene);
@@ -88,6 +89,14 @@ static void createTransParticleVerts(bContext * /*C*/, TransInfo *t)
     tc->data_len = count;
     td = tc->data = MEM_new_array_zeroed<TransData>(tc->data_len, "TransObData(Particle Mode)");
 
+    if (t->mode == TFM_BAKE_TIME) {
+      tx = tc->data_ext = MEM_new_array_zeroed<TransDataExtension>(tc->data_len,
+                                                                   "Particle_TransExtension");
+    }
+    else {
+      tx = tc->data_ext = nullptr;
+    }
+
     unit_m4(mat);
 
     invert_m4_m4(ob->runtime->world_to_object.ptr(), ob->object_to_world().ptr());
@@ -134,7 +143,30 @@ static void createTransParticleVerts(bContext * /*C*/, TransInfo *t)
           td->protectflag |= OB_LOCK_LOC;
         }
 
+        if (t->mode == TFM_BAKE_TIME) {
+          td->val = key->time;
+          td->ival = *(key->time);
+          /* Abuse scale and quat for min/max values. */
+          td->flag |= TD_NO_EXT;
+          if (k == 0) {
+            tx->scale = nullptr;
+          }
+          else {
+            tx->scale = (key - 1)->time;
+          }
+
+          if (k == point->totkey - 1) {
+            tx->quat = nullptr;
+          }
+          else {
+            tx->quat = (key + 1)->time;
+          }
+        }
+
         td++;
+        if (tx) {
+          tx++;
+        }
         tail++;
       }
       if (is_prop_edit && head != tail) {

@@ -19,7 +19,6 @@
 #include "BLI_math_vector.hh"
 #include "BLI_offset_indices.hh"
 #include "BLI_task.hh"
-#include "BLI_vector_set.hh"
 #include "PRF_profile.hh"
 
 namespace blender::geometry {

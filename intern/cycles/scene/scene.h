@@ -180,7 +180,6 @@ class Scene : public NodeOwner {
   Shader *default_light;
   Shader *default_background;
   Shader *default_empty;
-  Shader *default_gsplat;
 
   /* device */
   Device *device;

@@ -18,7 +18,6 @@
 #include "BKE_material.hh"
 #include "DNA_light_types.h"
 #include "DNA_material_types.h"
-#include "DNA_pointcloud_types.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -61,22 +60,6 @@ static Geometry::Type determine_geom_type(BObjectInfo &b_ob_info, bool use_parti
   return Geometry::MESH;
 }
 
-static Shader *get_default_shader(const Scene *scene, const blender::Object &b_ob)
-{
-  if (b_ob.type == blender::OB_VOLUME) {
-    return scene->default_volume;
-  }
-
-  if (b_ob.type == blender::OB_POINTCLOUD &&
-      blender::id_cast<const blender::PointCloud *>(b_ob.data)->type ==
-          blender::PointCloudType::GSplat)
-  {
-    return scene->default_gsplat;
-  }
-
-  return scene->default_surface;
-}
-
 array<Node *> BlenderSync::find_used_shaders(blender::Object &b_ob)
 {
   array<Node *> used_shaders;
@@ -87,7 +70,8 @@ array<Node *> BlenderSync::find_used_shaders(blender::Object &b_ob)
   }
 
   blender::Material *material_override = view_layer.material_override;
-  Shader *default_shader = get_default_shader(scene, b_ob);
+  Shader *default_shader = (b_ob.type == blender::OB_VOLUME) ? scene->default_volume :
+                                                               scene->default_surface;
 
   for (const int i : blender::IndexRange(BKE_object_material_count_eval(&b_ob))) {
     if (material_override) {

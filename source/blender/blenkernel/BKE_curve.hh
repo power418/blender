@@ -24,7 +24,7 @@ namespace blender {
 
 struct BezTriple;
 struct BevList;
-struct BMesh;
+struct BMEditMesh;
 struct BPoint;
 struct Curve;
 struct Depsgraph;
@@ -435,7 +435,7 @@ void BKE_curve_deform_coords_with_editmesh(const Object *ob_curve,
                                            int defgrp_index,
                                            short flag,
                                            short defaxis,
-                                           const BMesh &bm_target);
+                                           const BMEditMesh *em_target);
 
 /**
  * \param orco: Input vec and orco = local coord in curve space

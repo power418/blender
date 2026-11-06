@@ -63,7 +63,6 @@ class GPUCodegen {
   BLI_HashMurmur2A hm2a_;
   ListBaseT<LinkData> ubo_inputs_ = {nullptr, nullptr};
   GPUInput *cryptomatte_input_ = nullptr;
-  GPUInput *thickness_input_ = nullptr;
 
   /** Cache parameters for complexity heuristic. */
   uint nodes_total_ = 0;
@@ -75,15 +74,10 @@ class GPUCodegen {
   ~GPUCodegen();
 
   void generate_graphs();
-  void generate_material_props();
+  void generate_cryptomatte();
   void generate_uniform_buffer();
   void generate_attribs();
   void generate_resources();
-
-  /* Populates `ubo_inputs_`. */
-  void extract_uniform_list();
-  /* Sorts `ubo_inputs_` but does not create a UBO. */
-  void sort_uniform_inputs();
 
   uint32_t hash_get() const
   {

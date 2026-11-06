@@ -581,7 +581,9 @@ static int gizmo_3d_foreach_selected(const bContext *C,
     ob = obedit;
     if (obedit->type == OB_MESH) {
       FOREACH_EDIT_OBJECT_BEGIN (ob_iter, use_mat_local) {
-        BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob_iter);
+        BMEditMesh *em_iter = BKE_editmesh_from_object(ob_iter);
+        BMesh *bm = em_iter->bm;
+
         if (bm->totvertsel == 0) {
           continue;
         }
@@ -901,7 +903,7 @@ static int gizmo_3d_foreach_selected(const bContext *C,
       }
     }
   }
-  else if (ob && (ob->mode & OB_MODE_ALL_PAINT_MESH)) {
+  else if (ob && (ob->mode & OB_MODE_ALL_PAINT)) {
     if (ob->mode & OB_MODE_SCULPT) {
       totsel = 1;
       run_coord_with_matrix(

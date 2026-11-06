@@ -78,7 +78,8 @@ static wmOperatorStatus edbm_space_edge_loops_evenly_exec(bContext *C, wmOperato
   bool changed_multi = false;
 
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
+    BMesh *bm = em->bm;
     if (bm->totedgesel > 0) {
       has_edges_selected = true;
     }
@@ -96,7 +97,7 @@ static wmOperatorStatus edbm_space_edge_loops_evenly_exec(bContext *C, wmOperato
       continue;
     }
 
-    if (!EDBM_op_callf(bm,
+    if (!EDBM_op_callf(em,
                        op,
                        "space_edge_loops_evenly geom=%he interpolation=%i factor=%f "
                        "lock_x=%b lock_y=%b lock_z=%b",

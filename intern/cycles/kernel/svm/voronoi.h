@@ -1148,7 +1148,8 @@ ccl_device_noinline void svm_node_tex_voronoi(
           output = fractal_voronoi_x_fx(params, w);
           break;
         case 2:
-          IF_KERNEL_NODES_FEATURE (VORONOI_EXTRA) {
+          IF_KERNEL_NODES_FEATURE(VORONOI_EXTRA)
+          {
             params.max_distance = voronoi_distance(zero_float2(),
                                                    make_float2(0.5f + 0.5f * params.randomness,
                                                                0.5f + 0.5f * params.randomness),
@@ -1158,7 +1159,8 @@ ccl_device_noinline void svm_node_tex_voronoi(
           }
           break;
         case 3:
-          IF_KERNEL_NODES_FEATURE (VORONOI_EXTRA) {
+          IF_KERNEL_NODES_FEATURE(VORONOI_EXTRA)
+          {
             params.max_distance = voronoi_distance(zero_float3(),
                                                    make_float3(0.5f + 0.5f * params.randomness,
                                                                0.5f + 0.5f * params.randomness,
@@ -1169,7 +1171,8 @@ ccl_device_noinline void svm_node_tex_voronoi(
           }
           break;
         case 4:
-          IF_KERNEL_NODES_FEATURE (VORONOI_EXTRA) {
+          IF_KERNEL_NODES_FEATURE(VORONOI_EXTRA)
+          {
             params.max_distance = voronoi_distance(zero_float4(),
                                                    make_float4(0.5f + 0.5f * params.randomness,
                                                                0.5f + 0.5f * params.randomness,

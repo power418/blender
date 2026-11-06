@@ -140,7 +140,6 @@ class Integrator : public Node {
   };
 
   bool shadow_catcher_needs_recalc_ = true;
-  bool scene_has_shadow_catcher_ = false;
 
   Integrator();
   ~Integrator() override;

@@ -64,8 +64,7 @@ bool VKImageInfo::operator==(const VKImageInfo &o) const
          std::tuple_cat(detail::tie(o.create_info), std::tie(o.allocation, o.segment));
 }
 
-static VKResourceWithHandle<VkImage> create_and_bind_vk_image(const VKImageInfo &info,
-                                                              const std::string &name_str)
+static VkImage create_and_bind_vk_image(const VKImageInfo &info, const std::string &name_str)
 {
   VKDevice &device = VKBackend::get().device;
 
@@ -85,12 +84,9 @@ static VKResourceWithHandle<VkImage> create_and_bind_vk_image(const VKImageInfo 
   /* Register VkImage handle as resource for synchronization. */
   bool use_subresource_tracking = info.create_info.arrayLayers > 1 ||
                                   info.create_info.mipLevels > 1;
-  /* `VK_NULL_HANDLE` on purpose: the `AllocationHandle` owns the allocation; passing it here
-   * would double-free it in `vmaDestroyImage`. */
-  ResourceHandle resource_handle = device.resources.add_aliased_image(
-      image, use_subresource_tracking, VK_NULL_HANDLE, name_str.c_str());
+  device.resources.add_aliased_image(image, use_subresource_tracking, name_str.c_str());
 
-  return {.resource_handle = resource_handle, .vk_handle = image};
+  return image;
 }
 
 /* Query memory requirements from VkImageCreateInfo. If VK_KHR_MAINTENANCE4 is supported,
@@ -130,13 +126,13 @@ inline VkMemoryRequirements get_image_memory_requirements(const VkImageCreateInf
   return reqs_out.memoryRequirements;
 }
 
-VKResourceWithHandle<VkImage> VKImageCache::get_or_create(const VKImageInfo &info)
+VkImage VKImageCache::get_or_create(const VKImageInfo &info)
 {
   /* If a bound VkImage handle exists in the map, reset its counter and return it. */
   VKImageHandle *image_handle = cache_.lookup_ptr(info);
   if (image_handle) {
     image_handle->unused_cycles_count = 0;
-    return image_handle->resource;
+    return image_handle->image;
   }
 
   /* Generate debug label name, if one is needed in the rendergraph. */
@@ -146,22 +142,10 @@ VKResourceWithHandle<VkImage> VKImageCache::get_or_create(const VKImageInfo &inf
   }
 
   /* Otherwise, create VkImage handle and insert into cache. */
-  VKResourceWithHandle<VkImage> resource = create_and_bind_vk_image(info, name_str);
-  cache_.add_new(info, {.resource = resource});
+  VkImage image = create_and_bind_vk_image(info, name_str);
+  cache_.add_new(info, {.image = image});
 
-  return resource;
-}
-
-Vector<VKImageView> VKImageCache::take_image_views(const VKImageInfo &info)
-{
-  VKImageHandle &image_handle = cache_.lookup(info);
-  return std::move(image_handle.image_views);
-}
-
-void VKImageCache::store_image_views(const VKImageInfo &info, Vector<VKImageView> image_views)
-{
-  VKImageHandle &image_handle = cache_.lookup(info);
-  image_handle.image_views = std::move(image_views);
+  return image;
 }
 
 void VKImageCache::reset_unused_cycles_count(const VKImageInfo &info)
@@ -185,11 +169,11 @@ void VKImageCache::reset(bool force_reset)
     }
   }
 
-  /* Remove unused images from cache and release the pool's reference to them. */
+  /* Remove unused images from cache, and forward VkImage handles to discard pool.  */
+  VKDiscardPool &discard_pool = VKDiscardPool::discard_pool_get();
   for (const VKImageInfo &key : unused_keys) {
     VKImageHandle handle = cache_.pop(key);
-    VKDevice &device = VKBackend::get().device;
-    device.resources.deref_resource(handle.resource.resource_handle);
+    discard_pool.discard_image(handle.image, VK_NULL_HANDLE);
   }
 }
 
@@ -203,11 +187,11 @@ void VKImageCache::discard_all_of(VmaAllocation allocation)
     }
   }
 
-  /* Remove unused images from cache and release the pool's reference to them. */
+  /* Remove unused images from cache, and forward handles to discard pool.  */
+  VKDiscardPool &discard_pool = VKDiscardPool::discard_pool_get();
   for (const VKImageInfo &key : unused_keys) {
     VKImageHandle handle = cache_.pop(key);
-    VKDevice &device = VKBackend::get().device;
-    device.resources.deref_resource(handle.resource.resource_handle);
+    discard_pool.discard_image(handle.image, VK_NULL_HANDLE);
   }
 }
 
@@ -454,15 +438,13 @@ Texture *VKTexturePool::acquire_texture_impl(int3 extent,
 
   /* Get or create a VkImage handle and assign it to the texture. */
   if (image_cache_) {
-    texture->resource_ = image_cache_->get_or_create(image_info);
-    /* Reuse views of the cached image, as they are only destroyed together with the image. */
-    texture->image_views_ = image_cache_->take_image_views(image_info);
+    texture->vk_image_ = image_cache_->get_or_create(image_info);
   }
   else {
-    texture->resource_ = create_and_bind_vk_image(image_info, name_str);
+    texture->vk_image_ = create_and_bind_vk_image(image_info, name_str);
   }
   texture->vk_image_usage_ = create_info.usage;
-  debug::object_label(texture->resource_.vk_handle, name_str);
+  debug::object_label(texture->vk_image_, name_str);
 
   if (G.debug & G_DEBUG_GPU) {
     /* Accumulate usage data for debug log. */
@@ -507,13 +489,11 @@ void VKTexturePool::release_texture(Texture *texture)
   allocation_handle.release(image_info.segment);
   allocations_.add_overwrite(allocation_handle);
 
-  /* Release the pool's reference to the VkImage (the cache owns it when in use). */
-  if (image_cache_) {
-    image_cache_->store_image_views(image_info, std::move(texture_handle.texture->image_views_));
-  }
-  else {
-    VKDevice &device = VKBackend::get().device;
-    device.resources.deref_resource(texture_handle.texture->resource_.resource_handle);
+  /* Forward VkImage to discard pool; if VKImageCache is used, this is
+   * handled by the cache over time. */
+  if (!image_cache_) {
+    VKDiscardPool &discard_pool = VKDiscardPool::discard_pool_get();
+    discard_pool.discard_image(texture_handle.texture->vk_image_handle(), VK_NULL_HANDLE);
   }
 
   /* Delete texture and remove it from the acquired set.

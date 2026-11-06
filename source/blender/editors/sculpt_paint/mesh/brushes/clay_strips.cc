@@ -99,6 +99,7 @@ static void calc_faces(const Depsgraph &depsgraph,
                        const MeshAttributeData &attribute_data,
                        const bke::pbvh::MeshNode &node,
                        Object &object,
+                       LocalData &tls,
                        const PositionDeformData &position_data)
 {
   SculptSession &ss = *object.runtime->sculpt_session;
@@ -106,15 +107,18 @@ static void calc_faces(const Depsgraph &depsgraph,
 
   const Span<int> verts = node.verts();
 
-  Array<float, bke::pbvh::MESH_LEAF_LIMIT> factors(verts.size());
+  tls.factors.resize(verts.size());
+  const MutableSpan<float> factors = tls.factors;
   fill_factor_from_hide_and_mask(attribute_data.hide_vert, attribute_data.mask, verts, factors);
   filter_region_clip_factors(ss, position_data.eval, verts, factors);
   if (brush.flag & BRUSH_FRONTFACE) {
     calc_front_face(cache.view_normal_symm, vert_normals, verts, factors);
   }
 
-  Array<float2, bke::pbvh::MESH_LEAF_LIMIT> xy_positions(verts.size());
-  Array<float, bke::pbvh::MESH_LEAF_LIMIT> z_positions(verts.size());
+  tls.xy_positions.resize(verts.size());
+  tls.z_positions.resize(verts.size());
+  MutableSpan<float2> xy_positions = tls.xy_positions;
+  MutableSpan<float> z_positions = tls.z_positions;
 
   calc_local_positions(position_data.eval,
                        verts,
@@ -125,12 +129,13 @@ static void calc_faces(const Depsgraph &depsgraph,
                        xy_positions,
                        z_positions);
   if (eBrushFalloffShape(brush.falloff_shape) == PAINT_FALLOFF_SHAPE_TUBE) {
-    z_positions.as_mutable_span().fill(brush.plane_offset);
+    z_positions.fill(brush.plane_offset);
   }
   apply_z_axis_factors(z_positions, factors);
   apply_plane_trim_factors(brush, z_positions, factors);
 
-  Array<float, bke::pbvh::MESH_LEAF_LIMIT> distances(verts.size());
+  tls.distances.resize(verts.size());
+  const MutableSpan<float> distances = tls.distances;
   calc_brush_cube_distances<float2>(brush, xy_positions, distances);
   filter_distances_with_radius(1.0f, distances, factors);
   apply_hardness_to_distances(1.0f, cache.hardness, distances);
@@ -142,13 +147,13 @@ static void calc_faces(const Depsgraph &depsgraph,
 
   auto_mask::calc_vert_factors(depsgraph, object, cache.automasking.get(), node, verts, factors);
 
-  calc_brush_texture_factors(PaintMode::Sculpt, ss, brush, position_data.eval, verts, factors);
+  calc_brush_texture_factors(ss, brush, position_data.eval, verts, factors);
 
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> translations(verts.size());
-  translations_from_offset_and_factors(offset, factors, translations);
+  tls.translations.resize(verts.size());
+  translations_from_offset_and_factors(offset, factors, tls.translations);
 
-  clip_and_lock_translations(sd, ss, position_data.eval, verts, translations);
-  position_data.deform(translations, verts);
+  clip_and_lock_translations(sd, ss, position_data.eval, verts, tls.translations);
+  position_data.deform(tls.translations, verts);
 }
 
 static void calc_grids(const Depsgraph &depsgraph,
@@ -206,7 +211,7 @@ static void calc_grids(const Depsgraph &depsgraph,
 
   auto_mask::calc_grids_factors(depsgraph, object, cache.automasking.get(), node, grids, factors);
 
-  calc_brush_texture_factors(PaintMode::Sculpt, ss, brush, positions, factors);
+  calc_brush_texture_factors(ss, brush, positions, factors);
 
   tls.translations.resize(positions.size());
   translations_from_offset_and_factors(offset, factors, tls.translations);
@@ -269,7 +274,7 @@ static void calc_bmesh(const Depsgraph &depsgraph,
 
   auto_mask::calc_vert_factors(depsgraph, object, cache.automasking.get(), node, verts, factors);
 
-  calc_brush_texture_factors(PaintMode::Sculpt, ss, brush, positions, factors);
+  calc_brush_texture_factors(ss, brush, positions, factors);
 
   tls.translations.resize(positions.size());
   translations_from_offset_and_factors(offset, factors, tls.translations);
@@ -318,6 +323,7 @@ void do_clay_strips_brush(const Depsgraph &depsgraph,
       const Span<float3> vert_normals = bke::pbvh::vert_normals_eval(depsgraph, object);
       node_mask.foreach_index(
           [&](const int i) {
+            LocalData &tls = all_tls.local();
             calc_faces(depsgraph,
                        sd,
                        brush,
@@ -327,6 +333,7 @@ void do_clay_strips_brush(const Depsgraph &depsgraph,
                        attribute_data,
                        nodes[i],
                        object,
+                       tls,
                        position_data);
             bke::pbvh::update_node_bounds_mesh(position_data.eval, nodes[i]);
           },

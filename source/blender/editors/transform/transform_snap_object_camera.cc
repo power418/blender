@@ -20,11 +20,14 @@
 
 namespace blender::ed::transform {
 
-eSnapMode snapCamera(SnapObjectContext *sctx, const Object *object, const float4x4 &obmat)
+eSnapMode snapCamera(SnapObjectContext *sctx,
+                     const Object *object,
+                     const float4x4 &obmat,
+                     eSnapMode snap_to_flag)
 {
   eSnapMode retval = SCE_SNAP_TO_NONE;
 
-  if (!(sctx->runtime.snap_to_flag & SCE_SNAP_TO_ORIGIN)) {
+  if (!(sctx->runtime.snap_to_flag & SCE_SNAP_TO_POINT)) {
     return retval;
   }
 
@@ -32,7 +35,7 @@ eSnapMode snapCamera(SnapObjectContext *sctx, const Object *object, const float4
 
   MovieClip *clip = BKE_object_movieclip_get(scene, object, false);
   if (clip == nullptr) {
-    return retval;
+    return snap_object_center(sctx, object, obmat, snap_to_flag);
   }
 
   if (object->transflag & OB_DUPLI) {

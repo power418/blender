@@ -69,11 +69,6 @@ class SwitchViewOperation : public NodeOperation {
     const Result &input = this->get_input(this->context().get_view_name());
     result.share_data(input);
   }
-
-  bool uses_asynchronous_execution() const override
-  {
-    return false;
-  }
 };
 
 static NodeOperation *get_compositor_operation(Context &context, const bNode &node)

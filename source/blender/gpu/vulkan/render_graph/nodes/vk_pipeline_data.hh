@@ -140,7 +140,7 @@ struct VKIndexBufferBinding {
   bool operator==(const VKIndexBufferBinding &other) const
   {
     return buffer.resource_handle == other.buffer.resource_handle &&
-           buffer.vk_handle == other.buffer.vk_handle && index_type == other.index_type;
+           index_type == other.index_type;
   }
   bool operator!=(const VKIndexBufferBinding &other) const
   {

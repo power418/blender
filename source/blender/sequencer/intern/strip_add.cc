@@ -225,8 +225,9 @@ void add_image_init_alpha_mode(Main *bmain, Scene *scene, Strip *strip)
 
     /* Initialize input color space. */
     if (strip->type == STRIP_TYPE_IMAGE) {
-      ibuf = IMB_load_image_from_filepath(
-          filepath, ImBufFlags::Test | ImBufFlags::AlphaDetect, &strip->data->colorspace_settings);
+      ibuf = IMB_load_image_from_filepath(filepath,
+                                          ImBufFlags::Test | ImBufFlags::AlphaDetect,
+                                          strip->data->colorspace_settings.name);
 
       /* Byte images are default to straight alpha, however sequencer
        * works in pre-multiply space, so mark strip to be pre-multiplied first. */
@@ -271,7 +272,7 @@ Strip *add_image_strip(Main *bmain, Scene *scene, ListBaseT<Strip> *seqbase, Loa
   BLI_path_abs(file_path, ID_BLEND_PATH(bmain, &scene->id));
 
   ImBuf *ibuf = IMB_load_image_from_filepath(
-      file_path, ImBufFlags::ByteData, &strip->data->colorspace_settings);
+      file_path, ImBufFlags::ByteData, strip->data->colorspace_settings.name);
   if (ibuf != nullptr) {
     /* Set image resolution. Assume that all images in sequence are same size. This fields are only
      * informative. */
@@ -397,7 +398,7 @@ Strip *add_movie_strip(Main *bmain, Scene *scene, ListBaseT<Strip> *seqbase, Loa
   STRNCPY(filepath, load_data->path);
   BLI_path_abs(filepath, ID_BLEND_PATH(bmain, &scene->id));
 
-  ColorManagedColorspaceSettings colorspace_settings;
+  char colorspace[/*MAX_COLORSPACE_NAME*/ 64] = "\0";
   bool is_multiview_loaded = false;
   const int totfiles = load_data->use_multiview ?
                            seq_multiview_num_files_get(scene, load_data->views_format) :
@@ -421,8 +422,7 @@ Strip *add_movie_strip(Main *bmain, Scene *scene, ListBaseT<Strip> *seqbase, Loa
         seq_multiview_name(scene, i, prefix, ext, filepath_view, sizeof(filepath_view));
         /* Sequencer takes care of colorspace conversion of the result. The input is the best to be
          * kept unchanged for the performance reasons. */
-        anim_arr[j].reset(
-            openanim(filepath_view, ImBufFlags::Zero, 0, true, &colorspace_settings));
+        anim_arr[j].reset(openanim(filepath_view, ImBufFlags::Zero, 0, true, colorspace));
 
         if (anim_arr[j]) {
           seq_anim_add_suffix(scene, anim_arr[j].get(), i);
@@ -437,7 +437,7 @@ Strip *add_movie_strip(Main *bmain, Scene *scene, ListBaseT<Strip> *seqbase, Loa
     /* Sequencer takes care of colorspace conversion of the result. The input is the best to be
      * kept unchanged for the performance reasons. */
     anim_arr[0].reset(
-        openanim(filepath, ImBufFlags::Zero, load_data->stream_index, true, &colorspace_settings));
+        openanim(filepath, ImBufFlags::Zero, load_data->stream_index, true, colorspace));
   }
 
   if (anim_arr[0] == nullptr && !load_data->allow_invalid_file) {
@@ -501,7 +501,7 @@ Strip *add_movie_strip(Main *bmain, Scene *scene, ListBaseT<Strip> *seqbase, Loa
     strip->flag |= SEQ_AUTO_PLAYBACK_RATE;
   }
 
-  strip->data->colorspace_settings = colorspace_settings;
+  STRNCPY_UTF8(strip->data->colorspace_settings.name, colorspace);
 
   StripData *data = strip->data;
   /* We only need 1 element for MOVIE strips. */

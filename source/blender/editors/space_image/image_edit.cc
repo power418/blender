@@ -8,7 +8,6 @@
 
 #include "DNA_brush_types.h"
 #include "DNA_mask_types.h"
-#include "DNA_mesh_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 
@@ -113,7 +112,8 @@ void ED_space_image_auto_set(const bContext *C, SpaceImage *sima)
     return;
   }
 
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+  BMEditMesh *em = BKE_editmesh_from_object(ob);
+  BMesh *bm = em->bm;
   BMFace *efa = BM_mesh_active_face_get(bm, true, false);
   if (efa == nullptr) {
     return;
@@ -489,7 +489,12 @@ bool ED_space_image_show_uvedit(const SpaceImage *sima, Object *obedit)
   }
 
   if (obedit && obedit->type == OB_MESH) {
-    return EDBM_uv_check(id_cast<const Mesh *>(obedit->data));
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
+    bool ret;
+
+    ret = EDBM_uv_check(em);
+
+    return ret;
   }
 
   return false;

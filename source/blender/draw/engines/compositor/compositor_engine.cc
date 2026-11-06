@@ -16,7 +16,6 @@
 
 #include "BKE_camera.h"
 #include "BKE_compositor.hh"
-#include "BKE_compute_context_cache.hh"
 #include "BKE_node.hh"
 
 #include "DEG_depsgraph_query.hh"
@@ -48,19 +47,15 @@ class Context : public compositor::Context {
  private:
   const Main *main_;
   const Scene *scene_;
-  /* The compute context of the active viewer if one exists. */
-  const ComputeContext *active_compute_context_;
+  /* The hash of the active compute context. */
+  const ComputeContextHash active_compute_context_hash_;
 
  public:
-  Context(compositor::StaticCacheManager &cache_manager,
-          bke::ComputeContextCache &compute_context_cache,
-          const Main *main,
-          const Scene *scene)
-      : compositor::Context(cache_manager, compute_context_cache),
+  Context(compositor::StaticCacheManager &cache_manager, const Main *main, const Scene *scene)
+      : compositor::Context(cache_manager),
         main_(main),
         scene_(scene),
-        active_compute_context_(
-            bke::compositor::compute_viewer_compute_context(*scene, compute_context_cache))
+        active_compute_context_hash_(bke::compositor::compute_active_compute_context_hash(*scene))
   {
   }
 
@@ -89,9 +84,9 @@ class Context : public compositor::Context {
     return compositor::SideEffectOutputTypes::ViewerNode;
   }
 
-  const ComputeContext *viewer_compute_context() const override
+  const ComputeContextHash &get_active_compute_context_hash() const override
   {
-    return active_compute_context_;
+    return active_compute_context_hash_;
   }
 
   /* In case the viewport has no camera region or is an image render, the domain covers the entire
@@ -346,7 +341,7 @@ class Context : public compositor::Context {
 
     /* If the no viewer output exist, write the output as a viewer. */
     compositor::Result &output_result = operation.get_result();
-    if (!this->viewer_compute_context()) {
+    if (!operation.has_viewer_output()) {
       this->write_viewer(output_result);
     }
 
@@ -371,11 +366,8 @@ class Instance : public DrawEngine {
 
   void draw(Manager & /*manager*/) final
   {
-    bke::ComputeContextCache compute_context_cache;
-    Context context(cache_manager_,
-                    compute_context_cache,
-                    DEG_get_bmain(DRW_context_get()->depsgraph),
-                    DRW_context_get()->scene);
+    Context context(
+        cache_manager_, DEG_get_bmain(DRW_context_get()->depsgraph), DRW_context_get()->scene);
     if (context.get_camera_region().is_empty()) {
       return;
     }

@@ -554,7 +554,6 @@ template int implicit_test<2>();
     return 3;
   }
 }
-#line 22
 )";
     auto [output, _, error] = process_test_string(input, Language::BSL);
     EXPECT_EQ(output, expect);
@@ -606,7 +605,6 @@ template int chain_test<0>();
     return 3;
   }
 }
-#line 21
 )";
     auto [output, _, error] = process_test_string(input, Language::BSL);
     EXPECT_EQ(output, expect);
@@ -679,7 +677,6 @@ template int f<3>(int);
     return 4;
   }
 }
-#line 26
 )";
     auto [output, _, error] = process_test_string(input, Language::BSL);
     EXPECT_EQ(output, expect);
@@ -721,10 +718,8 @@ void f(Res res)
 }
 )";
     string expect = R"(
-
 #define E int
-#line 3
-static constexpr int ENUM  = 1;
+static constexpr int E_ENUM  = 1;
 #define access_Res_i() i
 
 
@@ -753,12 +748,12 @@ Res Res_ctor_() {Res r;r._pad=0;return r;}
 
 void f(Res res)
 {
-  #if SRT_CONSTANT_i+ 1 + 1== 1
+  #if SRT_CONSTANT_i+1+1==1
 #line 12
                                                      {
     0;
   }
-  #elif SRT_CONSTANT_i== 1
+  #elif SRT_CONSTANT_i==1
 #line 15
                                          {
     1;
@@ -773,7 +768,6 @@ void f(Res res)
 }
 
 #endif
-#line 23
 )";
     auto [output, _, error] = process_test_string(input, Language::BSL);
     EXPECT_EQ(output, expect);

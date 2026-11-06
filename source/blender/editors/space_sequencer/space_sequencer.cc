@@ -23,7 +23,6 @@
 #include "BKE_layer.hh"
 #include "BKE_lib_query.hh"
 #include "BKE_lib_remap.hh"
-#include "BKE_main.hh"
 #include "BKE_screen.hh"
 
 #include "ED_screen.hh"
@@ -89,7 +88,7 @@ static SpaceLink *sequencer_create(const ScrArea * /*area*/, const Scene *scene)
                                 SEQ_TIMELINE_SHOW_THUMBNAILS | SEQ_TIMELINE_STRIP_END_THUMBNAILS;
 
   sseq->cache_overlay.flag = SEQ_CACHE_SHOW | SEQ_CACHE_SHOW_FINAL_OUT;
-  sseq->draw_flag |= SEQ_DRAW_EDIT_POINT_PREVIEW;
+  sseq->draw_flag |= SEQ_DRAW_TRANSFORM_PREVIEW;
 
   /* Header. */
   region = BKE_area_region_new();
@@ -206,7 +205,7 @@ static void sequencer_free(SpaceLink *sl)
 
 #if 0
   if (sseq->gpd) {
-    BKE_annotations_free_data(sseq->gpd);
+    BKE_gpencil_free_data(sseq->gpd);
   }
 #endif
 }
@@ -290,17 +289,6 @@ static SpaceLink *sequencer_duplicate(SpaceLink *sl)
   // sseq->gpd = gpencil_data_duplicate(sseq->gpd, false);
 
   return reinterpret_cast<SpaceLink *>(sseqn);
-}
-
-static void sequencer_deactivate(ScrArea *area)
-{
-  wmWindowManager *wm = G_MAIN->wm.first();
-  wmWindow *win = wm ? WM_window_find_by_area(wm, area) : nullptr;
-  WorkSpace *workspace = win ? WM_window_get_active_workspace(win) : nullptr;
-  Scene *scene = workspace ? workspace->sequencer_scene : nullptr;
-  if (scene && scene->ed) {
-    scene->ed->edit_point_set(scene, std::nullopt);
-  }
 }
 
 static void sequencer_listener(const wmSpaceTypeListenerParams *params)
@@ -436,7 +424,6 @@ static void sequencer_gizmos()
   WM_gizmogrouptype_append(SEQUENCER_GGT_gizmo2d_translate);
   WM_gizmogrouptype_append(SEQUENCER_GGT_gizmo2d_resize);
   WM_gizmogrouptype_append(SEQUENCER_GGT_gizmo2d_rotate);
-  WM_gizmogrouptype_append(SEQUENCER_GGT_blade);
 
   const wmGizmoMapType_Params params_preview = {SPACE_SEQ, RGN_TYPE_PREVIEW};
   wmGizmoMapType *gzmap_type_preview = WM_gizmomaptype_ensure(&params_preview);
@@ -476,8 +463,6 @@ static void sequencer_main_region_init(wmWindowManager *wm, ARegion *region)
   ListBaseT<wmDropBox> *lb = WM_dropboxmap_find("Sequencer", SPACE_SEQ, RGN_TYPE_WINDOW);
 
   WM_event_add_dropbox_handler(&region->runtime->handlers, lb);
-
-  sequencer_blade_handlers_add(region);
 }
 
 /* Strip editing timeline. */
@@ -1200,16 +1185,14 @@ static void sequencer_space_blend_read_data(BlendDataReader * /*reader*/, SpaceL
 #if 0
   if (sseq->gpd) {
     sseq->gpd = newdataadr(fd, sseq->gpd);
-    BKE_annotations_blend_read_data(fd, sseq->gpd);
+    BKE_gpencil_blend_read_data(fd, sseq->gpd);
   }
 #endif
 }
 
 static void sequencer_space_blend_write(BlendWriter *writer, SpaceLink *sl)
 {
-  writer->write_struct_cast<SpaceSeq>(sl, [](BlendStructWriter<SpaceSeq> &struct_writer) {
-    struct_writer.shallow_data.runtime = nullptr;
-  });
+  writer->write_struct_cast<SpaceSeq>(sl);
 }
 
 static bool sequencer_scrubbing_region_poll(const RegionPollParams *params)
@@ -1283,7 +1266,6 @@ void ED_spacetype_sequencer()
   st->dropboxes = sequencer_dropboxes;
   st->refresh = sequencer_refresh;
   st->listener = sequencer_listener;
-  st->deactivate = sequencer_deactivate;
   st->id_remap = sequencer_id_remap;
   st->foreach_id = sequencer_foreach_id;
   st->blend_read_data = sequencer_space_blend_read_data;

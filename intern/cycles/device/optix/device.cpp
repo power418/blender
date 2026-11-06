@@ -102,6 +102,7 @@ void device_optix_info(const vector<DeviceInfo> &cuda_devices, vector<DeviceInfo
     }
 #  endif
 
+    info.meets_driver_requirement = true;
     devices.push_back(info);
   }
 #else

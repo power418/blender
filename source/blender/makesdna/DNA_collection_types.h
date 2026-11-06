@@ -20,7 +20,6 @@ namespace blender {
 
 namespace bke {
 struct CollectionRuntime;
-struct CollectionImportRuntime;
 }  // namespace bke
 
 struct Collection;
@@ -125,13 +124,7 @@ struct CollectionObject {
   struct Object *ob = nullptr;
 
   CollectionLightLinking light_linking;
-  /** Sort index among the other objects listed directly under the collection (i.e. objects
-   * without a parent in this collection). Only used by the Outliner (see #SO_SORT_CUSTOM). */
-  int sort_index = -1;
-  /** Sort index among objects listed under their parented object in the Outliner. Only used by
-   * the Outliner (see #SO_SORT_CUSTOM). */
-  int parented_sort_index = -1;
-  char _pad[4] = {};
+  int _pad = {};
 };
 
 struct CollectionChild {
@@ -139,13 +132,11 @@ struct CollectionChild {
   struct Collection *collection = nullptr;
 
   CollectionLightLinking light_linking;
-  /** Custom manual sort index of this child collection among its siblings in the Outliner
-   * (#SO_SORT_CUSTOM). Only used for that purpose, nothing else reads or relies on it. */
-  int sort_index = -1;
+  int _pad = {};
 };
 
 /* Collection IO property storage and access. */
-struct CollectionImport {
+typedef struct CollectionImport {
   /** Identifier that matches the #FileHandlerType.idname. */
   char fh_idname[64] = "";
 
@@ -153,10 +144,7 @@ struct CollectionImport {
   uint32_t flag = 0;
 
   uint32_t _pad0 = {};
-
-  /* Keep last. */
-  bke::CollectionImportRuntime *runtime = nullptr;
-};
+} CollectionImport;
 
 struct CollectionExport {
   struct CollectionExport *next = nullptr, *prev = nullptr;

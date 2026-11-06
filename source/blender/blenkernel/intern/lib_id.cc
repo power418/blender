@@ -106,7 +106,6 @@ IDTypeInfo IDType_ID_LINK_PLACEHOLDER = {
     .foreach_cache = nullptr,
     .foreach_path = nullptr,
     .foreach_working_space_color = nullptr,
-    .foreach_asset_weak_reference = nullptr,
     .owner_pointer_get = nullptr,
 
     .blend_write = nullptr,
@@ -219,8 +218,6 @@ void BKE_lib_id_clear_library_data(Main *bmain, ID *id, const int flags)
   lib_id_library_local_paths(bmain, nullptr, id->lib, id);
 
   id_fake_user_clear(id);
-
-  MEM_SAFE_DELETE(id->library_weak_reference);
 
   id->lib = nullptr;
   id->tag &= ~(ID_TAG_INDIRECT | ID_TAG_EXTERN);
@@ -2290,11 +2287,6 @@ void BKE_main_id_indirect_linked_update(Main &bmain, std::optional<Span<ID *>> l
     ID *id = *id_pointer;
 
     if (!id) {
-      return IDWALK_RET_NOP;
-    }
-    if (cb_data->cb_flag & IDWALK_CB_LOOPBACK) {
-      /* Loop-back usages (e.g. from shape-key to their mesh etc.) can be ignored in ID dependency
-       * processes. */
       return IDWALK_RET_NOP;
     }
     if (cb_data->cb_flag & (IDWALK_CB_EMBEDDED | IDWALK_CB_EMBEDDED_NOT_OWNING)) {

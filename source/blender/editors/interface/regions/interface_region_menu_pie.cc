@@ -16,7 +16,6 @@
 
 #include "DNA_userdef_types.h"
 
-#include "BLI_array.hh"
 #include "BLI_listbase.hh"
 #include "BLI_string_utf8.hh"
 #include "BLI_time.hh"
@@ -229,6 +228,7 @@ wmOperatorStatus pie_menu_invoke(bContext *C, const char *idname, const wmEvent 
 struct PieMenuLevelData {
   char title[UI_MAX_NAME_STR]; /* parent pie title, copied for level */
   int icon;                    /* parent pie icon, copied for level */
+  int totitem;                 /* total count of *remaining* items */
 
   /* needed for calling #Layout::operator_enum_items again for new level */
   wmOperatorType *ot;
@@ -243,7 +243,7 @@ struct PieMenuLevelData {
  */
 static void pie_menu_level_invoke(bContext *C, void *argN, void *arg2)
 {
-  const Array<EnumPropertyItem> &items = *static_cast<const Array<EnumPropertyItem> *>(argN);
+  EnumPropertyItem *item_array = static_cast<EnumPropertyItem *>(argN);
   PieMenuLevelData *lvl = static_cast<PieMenuLevelData *>(arg2);
   wmWindow *win = CTX_wm_window(C);
 
@@ -256,15 +256,8 @@ static void pie_menu_level_invoke(bContext *C, void *argN, void *arg2)
   PropertyRNA *prop = RNA_struct_find_property(&ptr, lvl->propname.c_str());
 
   if (prop) {
-    /* Don't count the null terminating sentinel. */
-    layout.op_enum_items(lvl->ot,
-                         ptr,
-                         prop,
-                         lvl->properties,
-                         lvl->context,
-                         lvl->flag,
-                         items.data(),
-                         int(items.size() - 1));
+    layout.op_enum_items(
+        lvl->ot, ptr, prop, lvl->properties, lvl->context, lvl->flag, item_array, lvl->totitem);
   }
   else {
     RNA_warning("%s.%s not found", RNA_struct_identifier(ptr.type), lvl->propname.c_str());
@@ -284,19 +277,19 @@ void pie_menu_level_create(Block *block,
 {
   const int totitem_parent = PIE_MAX_ITEMS - 1;
   const int totitem_remain = totitem - totitem_parent;
+  const size_t array_size = sizeof(EnumPropertyItem) * totitem_remain;
 
   /* used as but->func_argN so freeing is handled elsewhere */
-  Array<EnumPropertyItem> *remaining = MEM_new<Array<EnumPropertyItem>>(__func__,
-                                                                        totitem_remain + 1);
-  remaining->as_mutable_span()
-      .take_front(totitem_remain)
-      .copy_from(Span(items + totitem_parent, totitem_remain));
+  EnumPropertyItem *remaining = static_cast<EnumPropertyItem *>(
+      MEM_new_uninitialized(array_size + sizeof(EnumPropertyItem), "pie_level_item_array"));
+  memcpy(remaining, items + totitem_parent, array_size);
   /* A null terminating sentinel element is required. */
-  remaining->last() = {};
+  memset(&remaining[totitem_remain], 0, sizeof(EnumPropertyItem));
 
   /* yuk, static... issue is we can't reliably free this without doing dangerous changes */
   static PieMenuLevelData lvl;
   STRNCPY_UTF8(lvl.title, block->pie_data->title);
+  lvl.totitem = totitem_remain;
   lvl.ot = ot;
   lvl.propname = propname;
   lvl.properties = properties;

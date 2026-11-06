@@ -25,7 +25,6 @@ namespace blender {
 
 struct ARegion;
 struct AZone;
-enum AZEdge : int;
 struct Depsgraph;
 struct IDProperty;
 struct Main;
@@ -38,7 +37,6 @@ struct bContext;
 struct bScreen;
 struct rcti;
 struct wmKeyConfig;
-struct wmKeyMap;
 struct wmMsgSubscribeKey;
 struct wmMsgSubscribeValue;
 struct wmNotifier;
@@ -552,16 +550,6 @@ class WorkspaceStatus {
    *   [V] X-Ray
    */
   void opmodal(std::string text, const wmOperatorType *ot, int propvalue, bool inverted = false);
-
-  /**
-   * Add a dynamic status entry for a given property in a modal keymap.
-   * Example:
-   *   [V] X-Ray
-   */
-  void modal_keymap(std::string text,
-                    const wmKeyMap &keymap,
-                    int propvalue,
-                    bool inverted = false);
 };
 
 void ED_workspace_do_listen(bContext *C, const wmNotifier *note);

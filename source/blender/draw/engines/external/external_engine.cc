@@ -61,13 +61,11 @@ class Prepass {
   PassMain::Sub *mesh_ps_ = nullptr;
   PassMain::Sub *curves_ps_ = nullptr;
   PassMain::Sub *pointcloud_ps_ = nullptr;
-  PassMain::Sub *gsplat_ps_ = nullptr;
 
   /* Reuse overlay shaders. */
   gpu::StaticShader depth_mesh = {"overlay_depth_mesh"};
   gpu::StaticShader depth_curves = {"overlay_depth_curves"};
   gpu::StaticShader depth_pointcloud = {"overlay_depth_pointcloud"};
-  gpu::StaticShader depth_gsplat = {"overlay_depth_gsplat"};
 
   draw::UniformBuffer<float4> dummy_buf;
 
@@ -97,11 +95,6 @@ class Prepass {
       sub.shader_set(depth_pointcloud.get());
       pointcloud_ps_ = &sub;
     }
-    {
-      auto &sub = ps_.sub("GSplat");
-      sub.shader_set(depth_gsplat.get());
-      gsplat_ps_ = &sub;
-    }
   }
 
   void particle_sync(Manager &manager, const ObjectRef &ob_ref)
@@ -124,7 +117,7 @@ class Prepass {
           handle = manager.resource_handle_for_psys(ob_ref, ob_ref.particles_matrix());
         }
 
-        Batch *geom = DRW_cache_particles_get_hair(ob, &psys, nullptr);
+        gpu::Batch *geom = DRW_cache_particles_get_hair(ob, &psys, nullptr);
         mesh_ps_->draw(geom, handle);
         break;
       }
@@ -158,10 +151,8 @@ class Prepass {
       return;
     }
 
-    Batch *geom_single = nullptr;
-    Span<Batch *> geom_list(&geom_single, 1);
-
-    ResourceHandleRange res_handle = manager.unique_handle(ob_ref);
+    gpu::Batch *geom_single = nullptr;
+    Span<gpu::Batch *> geom_list(&geom_single, 1);
 
     PassMain::Sub *pass = nullptr;
     switch (ob_ref.object->type) {
@@ -170,8 +161,8 @@ class Prepass {
         pass = mesh_ps_;
         break;
       case OB_POINTCLOUD:
-        pass = pointcloud_is_gsplat(ob_ref.object) ? gsplat_ps_ : pointcloud_ps_;
-        geom_single = pointcloud_sub_pass_setup(*pass, ob_ref, res_handle);
+        geom_single = pointcloud_sub_pass_setup(*pointcloud_ps_, ob_ref.object);
+        pass = pointcloud_ps_;
         break;
       case OB_CURVES: {
         const char *error = nullptr;
@@ -188,6 +179,8 @@ class Prepass {
     if (pass == nullptr) {
       return;
     }
+
+    ResourceHandleRange res_handle = manager.unique_handle(ob_ref);
 
     for (int material_id : geom_list.index_range()) {
       pass->draw(geom_list[material_id], res_handle);
@@ -221,12 +214,7 @@ class Instance : public DrawEngine {
   void init() final
   {
     draw_ctx = DRW_context_get();
-    const bool engine_provides_depth =
-        draw_ctx->v3d != nullptr &&
-        (ED_view3d_engine_type(draw_ctx->scene, draw_ctx->v3d->shading.type)->flag &
-         RE_WRITE_VIEWPORT_DEPTH);
-    do_prepass = !engine_provides_depth &&
-                 DRW_render_check_grease_pencil(draw_ctx->depsgraph, draw_ctx->v3d);
+    do_prepass = DRW_render_check_grease_pencil(draw_ctx->depsgraph, draw_ctx->v3d);
   }
 
   void begin_sync() final
@@ -249,26 +237,19 @@ class Instance : public DrawEngine {
   {
     RegionView3D *rv3d = draw_ctx->rv3d;
     ARegion *region = draw_ctx->region;
-    RenderEngineType *engine_type = ED_view3d_engine_type(draw_ctx->scene,
-                                                          draw_ctx->v3d->shading.type);
 
-    if (engine_type->flag & RE_WRITE_VIEWPORT_DEPTH) {
-      draw::command::StateSet::set(DRW_STATE_WRITE_COLOR | DRW_STATE_WRITE_DEPTH |
-                                   DRW_STATE_DEPTH_LESS_EQUAL);
-    }
-    else {
-      draw::command::StateSet::set(DRW_STATE_WRITE_COLOR);
-    }
+    draw::command::StateSet::set(DRW_STATE_WRITE_COLOR);
 
     /* The external engine can use the OpenGL rendering API directly, so make sure the state is
-     * already applied.
-     * We should only need this before view_draw, but we do it here for compatibility
-     * (matching previous Blender versions) */
+     * already applied. */
     GPU_apply_state();
 
     /* Create render engine. */
     RenderEngine *render_engine = nullptr;
     if (!rv3d->view_render) {
+      RenderEngineType *engine_type = ED_view3d_engine_type(draw_ctx->scene,
+                                                            draw_ctx->v3d->shading.type);
+
       if (!(engine_type->view_update && engine_type->view_draw)) {
         return;
       }
@@ -292,7 +273,8 @@ class Instance : public DrawEngine {
     ED_region_pixelspace(region);
 
     /* Render result draw. */
-    engine_type->view_draw(render_engine, draw_ctx->evil_C, draw_ctx->depsgraph);
+    const RenderEngineType *type = render_engine->type;
+    type->view_draw(render_engine, draw_ctx->evil_C, draw_ctx->depsgraph);
 
     GPU_matrix_pop();
     GPU_matrix_pop_projection();

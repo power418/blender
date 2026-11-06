@@ -61,7 +61,7 @@ enum eLightProbeDisplay : char {
 
 /* Probe->parallax && Probe->attenuation_type. */
 enum eLightProbeShape : char {
-  LIGHTPROBE_SHAPE_ELLIPSOID = 0,
+  LIGHTPROBE_SHAPE_ELIPSOID = 0,
   LIGHTPROBE_SHAPE_BOX = 1,
 };
 
@@ -127,9 +127,9 @@ struct LightProbe {
   /** General purpose flags for probes. */
   eLightProbe_Flag flag = LIGHTPROBE_FLAG_SHOW_INFLUENCE;
   /** Attenuation type. */
-  eLightProbeShape attenuation_type = LIGHTPROBE_SHAPE_ELLIPSOID;
+  eLightProbeShape attenuation_type = LIGHTPROBE_SHAPE_ELIPSOID;
   /** Parallax type. */
-  eLightProbeShape parallax_type = LIGHTPROBE_SHAPE_ELLIPSOID;
+  eLightProbeShape parallax_type = LIGHTPROBE_SHAPE_ELIPSOID;
   /** Grid specific flags. */
   eLightProbe_GridFlag grid_flag = LIGHTPROBE_GRID_CAPTURE_INDIRECT |
                                    LIGHTPROBE_GRID_CAPTURE_EMISSION;

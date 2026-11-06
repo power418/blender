@@ -7,9 +7,10 @@
 #include "eevee_defines.hh"
 #include "eevee_lightprobe_shared.hh"
 #include "eevee_sampling_lib.bsl.hh"
+#include "eevee_spherical_harmonics.bsl.hh"
 #include "gpu_shader_math_base.bsl.hh"
-#include "gpu_shader_math_spherical_harmonics.bsl.hh"
 #include "gpu_shader_math_vector.bsl.hh"
+#include "gpu_shader_utildefines.bsl.hh"
 
 namespace eevee::lightprobe::volume {
 
@@ -191,7 +192,8 @@ struct LightprobeVolumeRenderData {
     return sample_probe(grid_data, lP);
   }
 
-  SphericalHarmonicL1<float4> sample_probe_no_bias(const Sampling &sampling, float3 P) const
+  SphericalHarmonicL1<float4> sample_probe_no_bias([[resource_table]] const Sampling &sampling,
+                                                   float3 P) const
   {
     float3 lP;
     int index = select_volume_dithered(sampling, P, 0, lP);
@@ -199,7 +201,7 @@ struct LightprobeVolumeRenderData {
     return sample_probe(grid_data, lP);
   }
 
-  SphericalHarmonicL1<float4> sample_probe(const Sampling &sampling,
+  SphericalHarmonicL1<float4> sample_probe([[resource_table]] const Sampling &sampling,
                                            float3 P,
                                            float3 V,
                                            float3 Ng) const
@@ -238,14 +240,13 @@ struct LightprobeVolumeRenderData {
     return index;
   }
 
-  int select_volume_dithered(const Sampling &sampling,
+  int select_volume_dithered([[resource_table]] const Sampling &sampling,
                              float3 P,
                              int grid_index_start,
                              float3 &lP) const
   {
     int index = -1;
-    float random = square(random::pcg_4d(float4(P, sampling.rng_1D_get(SAMPLING_LIGHTPROBE))).x) *
-                   0.75f;
+    float random = square(pcg4d(float4(P, sampling.rng_1D_get(SAMPLING_LIGHTPROBE))).x) * 0.75f;
 #ifdef GPU_METAL
 /* NOTE: Performs a chunked unroll to avoid the compiler unrolling the entire loop, avoiding
  * very high instruction counts and long compilation time. Full unroll results in 90k +

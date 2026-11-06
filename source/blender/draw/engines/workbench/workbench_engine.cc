@@ -267,7 +267,7 @@ class Instance : public DrawEngine {
 
   void draw_mesh(ObjectRef &ob_ref,
                  Material &material,
-                 draw::Batch *batch,
+                 gpu::Batch *batch,
                  ResourceHandleRange handle,
                  const MaterialTexture *texture = nullptr,
                  bool show_missing_texture = false)
@@ -294,7 +294,7 @@ class Instance : public DrawEngine {
     if (object_state.use_per_material_batches) {
       const int material_count = BKE_object_material_used_with_fallback_eval(*ob_ref.object);
 
-      Span<draw::Batch *> batches;
+      Span<gpu::Batch *> batches;
       if (object_state.color_type == V3D_SHADING_TEXTURE_COLOR) {
         batches = DRW_cache_mesh_surface_texpaint_get(ob_ref.object);
       }
@@ -324,7 +324,7 @@ class Instance : public DrawEngine {
       }
     }
     else {
-      draw::Batch *batch;
+      gpu::Batch *batch;
       if (object_state.color_type == V3D_SHADING_TEXTURE_COLOR) {
         batch = DRW_cache_mesh_surface_texpaint_single_get(ob_ref.object);
       }
@@ -402,14 +402,10 @@ class Instance : public DrawEngine {
     resources_.material_buf.append(mat);
     int material_index = resources_.material_buf.size() - 1;
 
-    const bool is_gsplat = pointcloud_is_gsplat(ob_ref.object);
-    const bool has_transparency = mat.is_transparent();
-
-    this->draw_to_mesh_pass(ob_ref, has_transparency, [&](MeshPass &mesh_pass) {
+    this->draw_to_mesh_pass(ob_ref, mat.is_transparent(), [&](MeshPass &mesh_pass) {
       PassMain::Sub &pass =
-          is_gsplat ? mesh_pass.get_subpass(eGeometryType::GSPLAT).sub("GSplatSubPass") :
-                      mesh_pass.get_subpass(eGeometryType::POINTCLOUD).sub("PointCloudSubPass");
-      draw::Batch *batch = pointcloud_sub_pass_setup(pass, ob_ref, handle);
+          mesh_pass.get_subpass(eGeometryType::POINTCLOUD).sub("Point Cloud SubPass");
+      gpu::Batch *batch = pointcloud_sub_pass_setup(pass, ob_ref.object);
       pass.draw(batch, handle, material_index);
     });
   }
@@ -436,7 +432,7 @@ class Instance : public DrawEngine {
       PassMain::Sub &pass =
           mesh_pass.get_subpass(eGeometryType::CURVES, &texture).sub("Hair SubPass");
       pass.push_constant("emitter_object_id", int(emitter_handle.raw()));
-      draw::Batch *batch = hair_sub_pass_setup(pass, scene_state_.scene, ob_ref, psys, md);
+      gpu::Batch *batch = hair_sub_pass_setup(pass, scene_state_.scene, ob_ref, psys, md);
       pass.draw(batch, {ResourceID(handle)}, material_index);
     });
   }
@@ -453,7 +449,7 @@ class Instance : public DrawEngine {
       PassMain::Sub &pass = mesh_pass.get_subpass(eGeometryType::CURVES).sub("Curves SubPass");
 
       const char *error = nullptr;
-      draw::Batch *batch = curves_sub_pass_setup(pass, scene_state_.scene, ob_ref.object, error);
+      gpu::Batch *batch = curves_sub_pass_setup(pass, scene_state_.scene, ob_ref.object, error);
       if (error) {
         hair_buffer_overflow_error_ = error;
       }
@@ -491,9 +487,6 @@ class Instance : public DrawEngine {
     }
 
     anti_aliasing_ps_.setup_view(view_, scene_state_);
-
-    /* Hand off gsplat compute workload before draws. */
-    DRW_gsplat_ensure_radiance(manager, view_);
 
     GPUAttachment id_attachment = GPU_ATTACHMENT_NONE;
     if (scene_state_.draw_object_id) {

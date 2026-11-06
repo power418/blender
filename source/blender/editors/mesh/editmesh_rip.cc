@@ -515,7 +515,8 @@ static int edbm_rip_invoke__vert(bContext *C, const wmEvent *event, Object *obed
   Array<UnorderedLoopPair> fill_uloop_pairs;
   ARegion *region = CTX_wm_region(C);
   RegionView3D *rv3d = CTX_wm_region_view3d(C);
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMEditMesh *em = BKE_editmesh_from_object(obedit);
+  BMesh *bm = em->bm;
   BMIter iter, liter;
   BMLoop *l;
   BMEdge *e_best;
@@ -876,7 +877,8 @@ static int edbm_rip_invoke__edge(bContext *C, const wmEvent *event, Object *obed
   Array<UnorderedLoopPair> fill_uloop_pairs;
   ARegion *region = CTX_wm_region(C);
   RegionView3D *rv3d = CTX_wm_region_view3d(C);
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMEditMesh *em = BKE_editmesh_from_object(obedit);
+  BMesh *bm = em->bm;
   BMIter iter, eiter;
   BMLoop *l;
   BMEdge *e_best;
@@ -970,7 +972,7 @@ static int edbm_rip_invoke__edge(bContext *C, const wmEvent *event, Object *obed
     fill_uloop_pairs = edbm_tagged_loop_pairs_to_fill(bm);
   }
 
-  BM_mesh_edgesplit(bm, true, true, true);
+  BM_mesh_edgesplit(em->bm, true, true, true);
 
   /* NOTE: the output of the bmesh operator is ignored, since we built
    * the contiguous loop pairs to split already, its possible that some
@@ -1017,13 +1019,15 @@ static wmOperatorStatus edbm_rip_invoke(bContext *C, wmOperator *op, const wmEve
   bool error_rip_failed = true;
 
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
+
+    BMesh *bm = em->bm;
     BMIter iter;
     BMEdge *e;
     const bool singlesel = (bm->totvertsel == 1 && bm->totedgesel == 0 && bm->totfacesel == 0);
     int ret;
 
-    if (bm->totvertsel == 0) {
+    if (em->bm->totvertsel == 0) {
       continue;
     }
     no_vertex_selected = false;

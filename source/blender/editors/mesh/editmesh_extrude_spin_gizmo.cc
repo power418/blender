@@ -351,10 +351,11 @@ static void gizmo_mesh_spin_init_refresh(const bContext *C, wmGizmoGroup *gzgrou
 #ifdef USE_SELECT_CENTER
   {
     Object *obedit = CTX_data_edit_object(C);
-    BMesh *bm = BKE_editmesh_bmesh_get(obedit);
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
     float select_center[3] = {0};
     int totsel = 0;
 
+    BMesh *bm = em->bm;
     BMVert *eve;
     BMIter iter;
 

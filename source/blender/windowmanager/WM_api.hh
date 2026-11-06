@@ -172,24 +172,9 @@ void WM_main(bContext *C) ATTR_NORETURN;
  */
 void WM_init_splash_on_startup(bContext *C);
 /**
- * Open the project that was open on exit, if preference is enabled.
- */
-void WM_init_project_on_startup(bContext *C);
-/**
  * Show the splash screen.
  */
 void WM_init_splash(bContext *C);
-/**
- * Absolute file path of the active project splash image, or empty if there is none.
- */
-std::string WM_project_splash_image_filepath(const Main *bmain);
-/**
- * Load the splash image from the given filepath, scaled to the specified width
- * and with the Blender logo optionally composited in.
- */
-ImBuf *WM_project_splash_image_load(StringRefNull filepath,
-                                    int width = 1000,
-                                    bool add_logo = false);
 
 /**
  * Initialization for GPU backend,
@@ -589,7 +574,6 @@ bool WM_file_read(bContext *C,
                   const char *filepath,
                   const bool use_scripts_autoexec_check,
                   ReportList *reports);
-bool WM_file_read_project(bContext *C, const char *filepath, ReportList *reports);
 void WM_file_autosave_init(wmWindowManager *wm);
 bool WM_file_recover_last_session(bContext *C,
                                   const bool use_scripts_autoexec_check,
@@ -1220,35 +1204,23 @@ bool WM_operator_name_poll(bContext *C, const char *opstring);
 /**
  * Invokes operator in context.
  *
- * \param reports: If not null, use the given ReportList to be used by the called operator,
- * instead of creating a new one. Code will then assume that the reports are managed by the caller.
- * Useful for operators called from within another operator e.g.
- *
  * \param event: Optionally pass in an event to use when context uses one of the
  * `WM_OP_INVOKE_*` values. When left unset the #wmWindow.eventstate will be used,
  * this can cause problems for operators that read the events type - for example,
  * storing the key that was pressed so as to be able to detect its release.
  * In these cases it's necessary to forward the current event being handled.
  */
-wmOperatorStatus WM_operator_type_call_ptr_with_reports(bContext *C,
-                                                        wmOperatorType *ot,
-                                                        wm::OpCallContext context,
-                                                        PointerRNA *properties,
-                                                        ReportList *reports,
-                                                        const wmEvent *event);
-/** See #WM_operator_type_call_ptr_with_reports. */
 wmOperatorStatus WM_operator_name_call_ptr(bContext *C,
                                            wmOperatorType *ot,
                                            wm::OpCallContext context,
                                            PointerRNA *properties,
                                            const wmEvent *event);
-/** See #WM_operator_type_call_ptr_with_reports. */
+/** See #WM_operator_name_call_ptr. */
 wmOperatorStatus WM_operator_name_call(bContext *C,
                                        const char *opstring,
                                        wm::OpCallContext context,
                                        PointerRNA *properties,
                                        const wmEvent *event);
-/** See #WM_operator_type_call_ptr_with_reports. */
 wmOperatorStatus WM_operator_name_call_with_properties(bContext *C,
                                                        const char *opstring,
                                                        wm::OpCallContext context,

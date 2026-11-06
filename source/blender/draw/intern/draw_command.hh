@@ -38,11 +38,6 @@ namespace draw::command {
 class DrawCommandBuf;
 class DrawMultiBuf;
 
-/**
- * Return a persistent #Batch for procedural \a primitive draws.
- */
-Batch *procedural_batch_get(GPUPrimType primitive);
-
 /* -------------------------------------------------------------------- */
 /** \name Recording State
  * \{ */
@@ -377,7 +372,7 @@ struct SpecializeConstant {
 };
 
 struct Draw {
-  Batch *batch;
+  gpu::Batch *batch;
   uint32_t instance_len : 24;
   uint32_t expand_prim_type : 4; /* #GPUPrimType */
   uint32_t expand_prim_len : 4;
@@ -387,7 +382,7 @@ struct Draw {
 
   Draw() = default;
 
-  Draw(Batch *batch,
+  Draw(gpu::Batch *batch,
        uint instance_len,
        uint vertex_len,
        uint vertex_first,
@@ -417,7 +412,7 @@ struct Draw {
 };
 
 struct DrawMulti {
-  Batch *batch;
+  gpu::Batch *batch;
   DrawMultiBuf *multi_draw_buf;
   uint group_first;
   uint uuid;
@@ -427,7 +422,7 @@ struct DrawMulti {
 };
 
 struct DrawIndirect {
-  Batch *batch;
+  gpu::Batch *batch;
   gpu::StorageBuf **indirect_buf;
   ResourceID res_id;
 
@@ -576,7 +571,7 @@ class DrawCommandBuf {
 
   void append_draw(Vector<Header, 0> &headers,
                    Vector<Undetermined, 0> &commands,
-                   Batch *batch,
+                   gpu::Batch *batch,
                    uint instance_len,
                    uint vertex_len,
                    uint vertex_first,
@@ -629,11 +624,11 @@ class DrawCommandBuf {
  * `DrawGroup` as a container. This is done automatically for any successive commands with the
  * same state.
  *
- * A `DrawGroup` is the combination of a `Batch` (VBO state) and a `command::DrawMulti`
+ * A `DrawGroup` is the combination of a `gpu::Batch` (VBO state) and a `command::DrawMulti`
  * (Pipeline State).
  *
- * Inside each `DrawGroup` all instances of a same `Batch` is merged into a single
- * indirect command.
+ * Inside each `DrawGroup` all instances of a same `gpu::Batch` is merged into a single indirect
+ * command.
  *
  * To support this arbitrary reordering, we only need to know the offset of all the commands for a
  * specific `DrawGroup`. This is done on CPU by doing a simple prefix sum. The result is pushed to
@@ -659,9 +654,9 @@ class DrawMultiBuf {
   using DrawCommandBuf = StorageArrayBuffer<DrawCommand, 16, true>;
   using ResourceIdBuf = StorageArrayBuffer<uint, 128, true>;
 
-  using DrawGroupKey = std::pair<uint, Batch *>;
+  using DrawGroupKey = std::pair<uint, gpu::Batch *>;
   using DrawGroupMap = Map<DrawGroupKey, uint>;
-  /** Maps a DrawMulti command and a draw batch to their unique DrawGroup command. */
+  /** Maps a DrawMulti command and a gpu batch to their unique DrawGroup command. */
   DrawGroupMap group_ids_;
 
   /** DrawGroup Command heap. Uploaded to GPU for sorting. */
@@ -697,7 +692,7 @@ class DrawMultiBuf {
 
   void append_draw(Vector<Header, 0> &headers,
                    Vector<Undetermined, 0> &commands,
-                   Batch *batch,
+                   gpu::Batch *batch,
                    uint instance_len,
                    uint vertex_len,
                    uint vertex_first,
@@ -746,7 +741,7 @@ class DrawMultiBuf {
         group.back_facing_counter = 0;
         group.desc.vertex_len = vertex_len;
         group.desc.vertex_first = vertex_first;
-        group.desc.batch = batch;
+        group.desc.gpu_batch = batch;
         group.desc.expand_prim_type = expanded_prim_type;
         group.desc.expand_prim_len = expanded_prim_len;
         BLI_assert_msg(expanded_prim_len < (1 << 3),

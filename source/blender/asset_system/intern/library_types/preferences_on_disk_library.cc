@@ -9,8 +9,6 @@
 #include "BLI_assert.hh"
 #include "BLI_listbase.hh"
 
-#include "BKE_preferences.h"
-
 #include "DNA_userdef_types.h"
 
 #include "common.hh"
@@ -30,7 +28,7 @@ PreferencesOnDiskAssetLibrary::PreferencesOnDiskAssetLibrary(
 
 std::optional<AssetLibraryReference> PreferencesOnDiskAssetLibrary::library_reference() const
 {
-  const bUserAssetLibrary *library_definition = this->user_asset_library();
+  const bUserAssetLibrary *library_definition = user_library_.user_asset_library();
   if (!library_definition) {
     return {};
   }
@@ -47,14 +45,9 @@ std::optional<AssetLibraryReference> PreferencesOnDiskAssetLibrary::library_refe
   return library_ref;
 }
 
-const bUserAssetLibrary *PreferencesOnDiskAssetLibrary::user_asset_library() const
-{
-  return user_library_.user_asset_library();
-}
-
 std::optional<eAssetImportMethod> PreferencesOnDiskAssetLibrary::import_method() const
 {
-  const bUserAssetLibrary *library_definition = this->user_asset_library();
+  const bUserAssetLibrary *library_definition = user_library_.user_asset_library();
   if (!library_definition) {
     return {};
   }
@@ -64,7 +57,7 @@ std::optional<eAssetImportMethod> PreferencesOnDiskAssetLibrary::import_method()
 
 bool PreferencesOnDiskAssetLibrary::use_relative_paths() const
 {
-  const bUserAssetLibrary *library_definition = this->user_asset_library();
+  const bUserAssetLibrary *library_definition = user_library_.user_asset_library();
   if (!library_definition) {
     return false;
   }
@@ -74,12 +67,12 @@ bool PreferencesOnDiskAssetLibrary::use_relative_paths() const
 
 bool PreferencesOnDiskAssetLibrary::is_enabled() const
 {
-  const bUserAssetLibrary *library_definition = this->user_asset_library();
+  const bUserAssetLibrary *library_definition = user_library_.user_asset_library();
   if (!library_definition) {
     return false;
   }
 
-  return BKE_preferences_asset_library_is_available(&U, library_definition);
+  return (library_definition->flag & ASSET_LIBRARY_DISABLED) == 0;
 }
 
 }  // namespace blender::asset_system

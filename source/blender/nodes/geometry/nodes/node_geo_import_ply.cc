@@ -23,9 +23,7 @@ static void node_declare(NodeDeclarationBuilder &b)
       .optional_label()
       .description("Path to a PLY file");
 
-  /* The socket used to be called mesh, so keep "Mesh" as identifier to support forward and
-   * backward compatibility. */
-  b.add_output<decl::Geometry>("Geometry"_ustr, "Mesh"_ustr);
+  b.add_output<decl::Geometry>("Mesh"_ustr);
 }
 
 class LoadPlyCache : public memory_cache::CachedValue {
@@ -60,8 +58,10 @@ static void node_geo_exec(GeoNodeExecParams params)
         BLI_SCOPED_DEFER([&]() { BKE_reports_free(&reports); });
         import_params.reports = &reports;
 
+        Mesh *mesh = PLY_import_mesh(import_params);
+
         auto cached_value = std::make_unique<LoadPlyCache>();
-        cached_value->geometry = PLY_import_geometry_set(import_params);
+        cached_value->geometry = GeometrySet::from_mesh(mesh);
 
         for (Report &report : (import_params.reports)->list) {
           cached_value->warnings.append_as(report);

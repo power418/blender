@@ -37,8 +37,6 @@ set(SRC
   intern/anim_path.cc
   intern/anim_sys.cc
   intern/anim_visualization.cc
-  intern/annotations.cc
-  intern/annotations_geom.cc
   intern/anonymous_attribute_id.cc
   intern/appdir.cc
   intern/armature.cc
@@ -65,7 +63,6 @@ set(SRC
   intern/blender_cli_command.cc
   intern/blender_copybuffer.cc
   intern/blender_project.cc
-  intern/blender_project_config.cc
   intern/blender_undo.cc
   intern/blender_user_menu.cc
   intern/blendfile.cc
@@ -135,11 +132,13 @@ set(SRC
   intern/geometry_fields.cc
   intern/geometry_set.cc
   intern/geometry_set_instances.cc
+  intern/gpencil_geom_legacy.cc
+  intern/gpencil_legacy.cc
+  intern/gpencil_modifier_legacy.cc
   intern/grease_pencil.cc
   intern/grease_pencil_attributes.cc
   intern/grease_pencil_convert_legacy.cc
   intern/grease_pencil_fills.cc
-  intern/grease_pencil_modifiers.cc
   intern/grease_pencil_vertex_groups.cc
   intern/gtest_setup.cc
   intern/icons.cc
@@ -177,7 +176,6 @@ set(SRC
   intern/light_linking.cc
   intern/lightprobe.cc
   intern/linestyle.cc
-  intern/list.cc
   intern/main.cc
   intern/main_idmap.cc
   intern/main_invariants.cc
@@ -268,7 +266,6 @@ set(SRC
   intern/report.cc
   intern/rigidbody.cc
   intern/scene.cc
-  intern/scene_context.cc
   intern/screen.cc
   intern/shader_fx.cc
   intern/shrinkwrap.cc
@@ -327,8 +324,6 @@ set(SRC
   BKE_anim_path.h
   BKE_anim_visualization.h
   BKE_animsys.hh
-  BKE_annotations.h
-  BKE_annotations_geom.h
   BKE_anonymous_attribute_id.hh
   BKE_anonymous_attribute_make.hh
   BKE_appdir.hh
@@ -418,11 +413,13 @@ set(SRC
   BKE_geometry_set.hh
   BKE_geometry_set_instances.hh
   BKE_global.hh
+  BKE_gpencil_geom_legacy.h
+  BKE_gpencil_legacy.h
+  BKE_gpencil_modifier_legacy.h
   BKE_grease_pencil.h
   BKE_grease_pencil.hh
   BKE_grease_pencil_fills.hh
   BKE_grease_pencil_legacy_convert.hh
-  BKE_grease_pencil_modifiers.h
   BKE_grease_pencil_vertex_groups.hh
   BKE_gtest_base.hh
   BKE_gtest_setup.hh
@@ -451,8 +448,6 @@ set(SRC
   BKE_light_linking.h
   BKE_lightprobe.h
   BKE_linestyle.h
-  BKE_list.hh
-  BKE_list_fwd.hh
   BKE_main.hh
   BKE_main_idmap.hh
   BKE_main_invariants.hh
@@ -515,7 +510,6 @@ set(SRC
   BKE_report.hh
   BKE_rigidbody.h
   BKE_scene.hh
-  BKE_scene_context.hh
   BKE_scene_runtime.hh
   BKE_screen.hh
   BKE_shader_fx.hh
@@ -782,9 +776,9 @@ if(WITH_GTESTS)
     intern/asset_metadata_test.cc
     intern/attribute_storage_test.cc
     intern/bake_items_serialize_test.cc
-    intern/blender_project_test.cc
     intern/bpath_test.cc
     intern/brush_test.cc
+    intern/blender_project_test.cc
     intern/cryptomatte_test.cc
     intern/curves_geometry_test.cc
     intern/deform_test.cc

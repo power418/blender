@@ -864,6 +864,25 @@ class NodeTreeMainUpdater {
     }
   }
 
+  struct InternalLink {
+    bNodeSocket *from;
+    bNodeSocket *to;
+    int multi_input_sort_id = 0;
+
+    friend bool operator==(const InternalLink &a, const InternalLink &b) = default;
+  };
+
+  const bNodeLink *first_non_dangling_link(const bNodeTree & /*ntree*/,
+                                           const Span<const bNodeLink *> links) const
+  {
+    for (const bNodeLink *link : links) {
+      if (!link->fromnode->is_dangling_reroute()) {
+        return link;
+      }
+    }
+    return nullptr;
+  }
+
   void update_internal_links(bNodeTree &ntree)
   {
     bke::node_tree_runtime::AllowUsingOutdatedInfo allow_outdated_info{ntree};
@@ -873,7 +892,7 @@ class NodeTreeMainUpdater {
         continue;
       }
       /* Find all expected internal links. */
-      Vector<bNodeInternalLink> expected_internal_links;
+      Vector<InternalLink> expected_internal_links;
       for (const bNodeSocket *output_socket : node->output_sockets()) {
         if (!output_socket->is_available()) {
           continue;
@@ -888,8 +907,14 @@ class NodeTreeMainUpdater {
           continue;
         }
 
-        expected_internal_links.append(bNodeInternalLink{
-            const_cast<bNodeSocket *>(input_socket), const_cast<bNodeSocket *>(output_socket)});
+        const Span<const bNodeLink *> connected_links = input_socket->directly_linked_links();
+        const bNodeLink *connected_link = first_non_dangling_link(ntree, connected_links);
+
+        const int index = connected_link ? connected_link->multi_input_sort_id :
+                                           std::max<int>(0, connected_links.size() - 1);
+        expected_internal_links.append(InternalLink{const_cast<bNodeSocket *>(input_socket),
+                                                    const_cast<bNodeSocket *>(output_socket),
+                                                    index});
       }
 
       /* Rebuilt internal links if they have changed. */
@@ -901,8 +926,9 @@ class NodeTreeMainUpdater {
       const bool all_expected_internal_links_exist = std::all_of(
           node->runtime->internal_links.begin(),
           node->runtime->internal_links.end(),
-          [&](const bNodeInternalLink &link) {
-            return expected_internal_links.as_span().contains(link);
+          [&](const bNodeLink &link) {
+            const InternalLink internal_link{link.fromsock, link.tosock, link.multi_input_sort_id};
+            return expected_internal_links.as_span().contains(internal_link);
           });
 
       if (all_expected_internal_links_exist) {
@@ -951,10 +977,20 @@ class NodeTreeMainUpdater {
 
   void update_internal_links_in_node(bNodeTree &ntree,
                                      bNode &node,
-                                     Span<bNodeInternalLink> internal_links)
+                                     Span<InternalLink> internal_links)
   {
     node.runtime->internal_links.clear();
-    node.runtime->internal_links.extend(internal_links);
+    node.runtime->internal_links.reserve(internal_links.size());
+    for (const InternalLink &internal_link : internal_links) {
+      bNodeLink link{};
+      link.fromnode = &node;
+      link.fromsock = internal_link.from;
+      link.tonode = &node;
+      link.tosock = internal_link.to;
+      link.multi_input_sort_id = internal_link.multi_input_sort_id;
+      link.flag |= NODE_LINK_VALID;
+      node.runtime->internal_links.append(link);
+    }
     BKE_ntree_update_tag_node_internal_link(&ntree, &node);
   }
 
@@ -1523,10 +1559,7 @@ class NodeTreeMainUpdater {
         for (const bNodeSocket *linked_socket : socket->logically_linked_sockets()) {
           node->runtime->tmp_flag |= linked_socket->owner_node().runtime->tmp_flag;
           if (linked_socket->owner_node().type_legacy == SH_NODE_LIGHT_ACCUMULATION &&
-              ELEM(StringRefNull(linked_socket->name),
-                   "Diffuse Color",
-                   "Glossy Color",
-                   "Transmission Color"))
+              ELEM(StringRefNull(linked_socket->name), "Diffuse Color", "Glossy Color"))
           {
             node->runtime->tmp_flag |= short(ShaderNodeAncestorFlags::LightAccumulationColor);
           }
@@ -1557,24 +1590,13 @@ class NodeTreeMainUpdater {
         }
         break;
       case SH_NODE_ATTRIBUTE:
-      case SH_NODE_VECT_TRANSFORM:
+        if (static_cast<NodeShaderAttribute *>(node.storage)->type != SHD_ATTRIBUTE_LIGHT) {
+          break;
+        }
+        ATTR_FALLTHROUGH;
       case SH_NODE_LIGHT_INFO:
       case SH_NODE_LIGHT_EVALUATION:
       case SH_NODE_SHADOW_RAYCAST:
-        /* Attribute and Vector Transform nodes are only lighting nodes in light mode. */
-        if (node.type_legacy == SH_NODE_ATTRIBUTE &&
-            static_cast<NodeShaderAttribute *>(node.storage)->type != SHD_ATTRIBUTE_LIGHT)
-        {
-          break;
-        }
-        if (node.type_legacy == SH_NODE_VECT_TRANSFORM) {
-          const NodeShaderVectTransform *nodeprop = static_cast<NodeShaderVectTransform *>(
-              node.storage);
-          if (!ELEM(SHD_VECT_TRANSFORM_SPACE_LIGHT, nodeprop->convert_from, nodeprop->convert_to))
-          {
-            break;
-          }
-        }
         if (bool(flags & ShaderNodeAncestorFlags::ShaderMaterialOutput)) {
           if (!bool(flags & ShaderNodeAncestorFlags::LightAccumulation)) {
             return TIP_(
@@ -1583,10 +1605,7 @@ class NodeTreeMainUpdater {
           }
           if (bool(flags & ShaderNodeAncestorFlags::LightAccumulationColor) &&
               (link.tonode->type_legacy != SH_NODE_LIGHT_ACCUMULATION ||
-               ELEM(StringRefNull(link.tosock->name),
-                    "Diffuse Color",
-                    "Glossy Color",
-                    "Transmission Color")))
+               ELEM(StringRefNull(link.tosock->name), "Diffuse Color", "Glossy Color")))
           {
             return TIP_(
                 "Lighting nodes can't be connected to the Color sockets of a Light Accumulation "
@@ -1604,17 +1623,10 @@ class NodeTreeMainUpdater {
   void update_link_validation(bNodeTree &ntree)
   {
     const bNodeTreeZones *fallback_zones = nullptr;
-    if (ELEM(ntree.type, NTREE_GEOMETRY, NTREE_SHADER, NTREE_COMPOSIT) && !ntree.zones() &&
+    if (ELEM(ntree.type, NTREE_GEOMETRY, NTREE_SHADER) && !ntree.zones() &&
         ntree.runtime->last_valid_zones)
     {
       fallback_zones = ntree.runtime->last_valid_zones.get();
-    }
-
-    /* Clear the validity from the previous update first. The shader tagging below traverses the
-     * tree with an iterator that skips invalid links, so it would otherwise not see the links its
-     * own errors invalidated last time. */
-    for (bNodeLink &link : ntree.links) {
-      link.flag |= NODE_LINK_VALID;
     }
 
     if (ntree.type == NTREE_SHADER) {
@@ -1622,6 +1634,7 @@ class NodeTreeMainUpdater {
     }
 
     for (bNodeLink &link : ntree.links) {
+      link.flag |= NODE_LINK_VALID;
       if (!link.fromsock->is_available() || !link.tosock->is_available()) {
         link.flag &= ~NODE_LINK_VALID;
         continue;
@@ -2247,7 +2260,7 @@ class NodeTreeMainUpdater {
       if (bNodeTreeInterfaceSocket *toggle_socket = panel->header_toggle_socket()) {
         if (!STREQ(panel->name_, toggle_socket->name_)) {
           MEM_SAFE_DELETE(toggle_socket->name_);
-          toggle_socket->name_ = BLI_strdup_null(panel->name_);
+          toggle_socket->name() = BLI_strdup_null(panel->name_);
           changed = true;
         }
       }
@@ -2382,17 +2395,24 @@ bool operator==(const bNestedNodePath &a, const bNestedNodePath &b)
   return a.node_id == b.node_id && a.id_in_node == b.id_in_node;
 }
 
+/**
+ * Protect from recursive calls into the updating function. Some node update functions might
+ * trigger this from Python or in other cases.
+ *
+ * This could be added to #Main, but given that there is generally only one #Main, that's not
+ * really worth it now.
+ */
+static bool is_updating = false;
+
 void BKE_ntree_update(Main &bmain,
                       const std::optional<Span<bNodeTree *>> modified_trees,
                       const NodeTreeUpdateExtraParams &params)
 {
-  /* Protect from recursive calls into the updating function. Some node update functions might
-   * trigger this from Python or in other cases. */
-  if (bmain.is_updating_node_trees) {
+  if (is_updating) {
     return;
   }
 
-  bmain.is_updating_node_trees = true;
+  is_updating = true;
   bke::NodeTreeMainUpdater updater{&bmain, params};
   if (modified_trees.has_value()) {
     updater.update_rooted(*modified_trees);
@@ -2400,7 +2420,7 @@ void BKE_ntree_update(Main &bmain,
   else {
     updater.update();
   }
-  bmain.is_updating_node_trees = false;
+  is_updating = false;
 }
 
 void BKE_ntree_update_after_single_tree_change(Main &bmain,
@@ -2413,17 +2433,14 @@ void BKE_ntree_update_after_single_tree_change(Main &bmain,
 void BKE_ntree_update_without_main(bNodeTree &tree)
 {
   BLI_assert(tree.id.tag & ID_TAG_NO_MAIN);
-
-  /* Protect from recursive calls, see #BKE_ntree_update. */
-  if (tree.runtime->is_updating) {
+  if (is_updating) {
     return;
   }
-
-  tree.runtime->is_updating = true;
+  is_updating = true;
   NodeTreeUpdateExtraParams params;
   bke::NodeTreeMainUpdater updater{nullptr, params};
   updater.update_rooted({&tree});
-  tree.runtime->is_updating = false;
+  is_updating = false;
 }
 
 }  // namespace blender

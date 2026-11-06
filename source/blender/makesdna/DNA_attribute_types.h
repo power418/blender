@@ -19,7 +19,7 @@ class AttributeStorage;
 class AttributeStorageRuntime;
 }  // namespace bke
 
-/** DNA data for array storage of a bke::Attribute. */
+/** DNA data for bke::Attribute::ArrayData. */
 struct AttributeArray {
   void *data = nullptr;
   const ImplicitSharingInfoHandle *sharing_info = nullptr;
@@ -35,7 +35,7 @@ struct AttributeArray {
   char _pad[7] = {};
 };
 
-/** DNA data for single value storage of a bke::Attribute. */
+/** DNA data for bke::Attribute::SingleData. */
 struct AttributeSingle {
   void *data = nullptr;
   const ImplicitSharingInfoHandle *sharing_info = nullptr;

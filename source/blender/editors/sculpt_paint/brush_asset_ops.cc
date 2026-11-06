@@ -696,6 +696,7 @@ static bool brush_asset_save_poll(bContext *C)
   const std::optional<AssetLibraryReference> library_ref = get_asset_library_reference(
       *C, *paint, *brush);
   if (!library_ref) {
+    BLI_assert_unreachable();
     return false;
   }
 
@@ -758,6 +759,7 @@ static bool brush_asset_revert_poll(bContext *C)
   const std::optional<AssetLibraryReference> library_ref = get_asset_library_reference(
       *C, *paint, *brush);
   if (!library_ref) {
+    BLI_assert_unreachable();
     return false;
   }
   if (library_ref->type == ASSET_LIBRARY_LOCAL) {

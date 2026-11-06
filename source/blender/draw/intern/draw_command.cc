@@ -21,24 +21,17 @@
 
 namespace blender::draw::command {
 
-Batch *procedural_batch_get(GPUPrimType primitive)
+static gpu::Batch *procedural_batch_get(GPUPrimType primitive)
 {
-  /* Safe as function local statics: the procedural batches are not owned, their destructors are
-   * no-ops. */
-  static Batch batch_pts(GPU_PRIM_POINTS);
-  static Batch batch_lines(GPU_PRIM_LINES);
-  static Batch batch_tris(GPU_PRIM_TRIS);
-  static Batch batch_tri_strips(GPU_PRIM_TRI_STRIP);
-
   switch (primitive) {
     case GPU_PRIM_POINTS:
-      return &batch_pts;
+      return GPU_batch_procedural_points_get();
     case GPU_PRIM_LINES:
-      return &batch_lines;
+      return GPU_batch_procedural_lines_get();
     case GPU_PRIM_TRIS:
-      return &batch_tris;
+      return GPU_batch_procedural_triangles_get();
     case GPU_PRIM_TRI_STRIP:
-      return &batch_tri_strips;
+      return GPU_batch_procedural_triangle_strips_get();
     default:
       /* Add new one as needed. */
       BLI_assert_unreachable();
@@ -194,12 +187,10 @@ void Draw::execute(RecordingState &state) const
 
   GPU_shader_get_default_constant_state(state.shader).is_empty();
 
-  gpu::Batch *gpu_batch = batch->gpu_batch();
-
   if (is_primitive_expansion()) {
     /* Expanded draw-call. */
     IndexRange expanded_range = GPU_batch_draw_expanded_parameter_get(
-        gpu_batch->prim_type,
+        batch->prim_type,
         GPUPrimType(expand_prim_type),
         vertex_len,
         vertex_first,
@@ -210,21 +201,17 @@ void Draw::execute(RecordingState &state) const
       return;
     }
 
-    GPU_batch_bind_as_resources(gpu_batch, state.shader, state.specialization_constants_get());
+    GPU_batch_bind_as_resources(batch, state.shader, state.specialization_constants_get());
 
-    gpu::Batch *expand_gpu_batch =
-        procedural_batch_get(GPUPrimType(expand_prim_type))->gpu_batch();
-    GPU_batch_set_shader(expand_gpu_batch, state.shader, state.specialization_constants_get());
-    GPU_batch_draw_advanced(expand_gpu_batch,
-                            expanded_range.start(),
-                            expanded_range.size(),
-                            instance_first,
-                            instance_len);
+    gpu::Batch *gpu_batch = procedural_batch_get(GPUPrimType(expand_prim_type));
+    GPU_batch_set_shader(gpu_batch, state.shader, state.specialization_constants_get());
+    GPU_batch_draw_advanced(
+        gpu_batch, expanded_range.start(), expanded_range.size(), instance_first, instance_len);
   }
   else {
     /* Regular draw-call. */
-    GPU_batch_set_shader(gpu_batch, state.shader, state.specialization_constants_get());
-    GPU_batch_draw_advanced(gpu_batch, vertex_first, vertex_len, instance_first, instance_len);
+    GPU_batch_set_shader(batch, state.shader, state.specialization_constants_get());
+    GPU_batch_draw_advanced(batch, vertex_first, vertex_len, instance_first, instance_len);
   }
 }
 
@@ -238,12 +225,13 @@ void DrawMulti::execute(RecordingState &state) const
     const DrawGroup &group = groups[group_index];
 
     if (group.vertex_len > 0) {
-      gpu::Batch *batch = group.desc.batch->gpu_batch();
+      gpu::Batch *batch = group.desc.gpu_batch;
 
       if (GPUPrimType(group.desc.expand_prim_type) != GPU_PRIM_NONE) {
         /* Bind original batch as resource and use a procedural batch to issue the draw-call. */
-        GPU_batch_bind_as_resources(batch, state.shader, state.specialization_constants_get());
-        batch = procedural_batch_get(GPUPrimType(group.desc.expand_prim_type))->gpu_batch();
+        GPU_batch_bind_as_resources(
+            group.desc.gpu_batch, state.shader, state.specialization_constants_get());
+        batch = procedural_batch_get(GPUPrimType(group.desc.expand_prim_type));
       }
 
       GPU_batch_set_shader(batch, state.shader, state.specialization_constants_get());
@@ -272,8 +260,7 @@ void DrawIndirect::execute(RecordingState &state) const
 {
   state.front_facing_set(res_id.has_inverted_handedness());
 
-  gpu::Batch *gpu_batch = batch->gpu_batch();
-  GPU_batch_draw_indirect(gpu_batch, *indirect_buf, 0);
+  GPU_batch_draw_indirect(batch, *indirect_buf, 0);
 }
 
 void Dispatch::execute(RecordingState &state) const
@@ -761,11 +748,8 @@ void DrawCommandBuf::finalize_commands(Vector<Header, 0> &headers,
 
     int batch_vert_len, batch_vert_first, batch_base_index, batch_inst_len;
     /* Now that GPUBatches are guaranteed to be finished, extract their parameters. */
-    GPU_batch_draw_parameter_get(cmd.batch->gpu_batch(),
-                                 &batch_vert_len,
-                                 &batch_vert_first,
-                                 &batch_base_index,
-                                 &batch_inst_len);
+    GPU_batch_draw_parameter_get(
+        cmd.batch, &batch_vert_len, &batch_vert_first, &batch_base_index, &batch_inst_len);
     /* Instancing attributes are not supported using the new pipeline since we use the base
      * instance to set the correct resource_id. Workaround is a storage_buf + gpu_InstanceIndex. */
     BLI_assert(batch_inst_len == 1);
@@ -829,9 +813,11 @@ void DrawMultiBuf::generate_commands(Vector<Header, 0> & /*headers*/,
 
     int batch_vert_len, batch_vert_first, batch_base_index, batch_inst_len;
     /* Now that GPUBatches are guaranteed to be finished, extract their parameters. */
-    gpu::Batch *batch = group.desc.batch->gpu_batch();
-    GPU_batch_draw_parameter_get(
-        batch, &batch_vert_len, &batch_vert_first, &batch_base_index, &batch_inst_len);
+    GPU_batch_draw_parameter_get(group.desc.gpu_batch,
+                                 &batch_vert_len,
+                                 &batch_vert_first,
+                                 &batch_base_index,
+                                 &batch_inst_len);
 
     group.vertex_len = group.desc.vertex_len == 0 ? batch_vert_len : group.desc.vertex_len;
     group.vertex_first = group.desc.vertex_first == -1 ? batch_vert_first :
@@ -845,7 +831,7 @@ void DrawMultiBuf::generate_commands(Vector<Header, 0> & /*headers*/,
     if (group.desc.expand_prim_type != GPU_PRIM_NONE) {
       /* Expanded draw-call. */
       IndexRange vert_range = GPU_batch_draw_expanded_parameter_get(
-          batch->prim_type,
+          group.desc.gpu_batch->prim_type,
           GPUPrimType(group.desc.expand_prim_type),
           group.vertex_len,
           group.vertex_first,

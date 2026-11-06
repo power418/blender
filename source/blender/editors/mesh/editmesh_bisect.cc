@@ -125,8 +125,9 @@ static wmOperatorStatus mesh_bisect_invoke(bContext *C, wmOperator *op, const wm
   const Vector<Object *> objects = BKE_view_layer_array_from_objects_in_edit_mode_unique_data(
       *bmain, scene, view_layer, CTX_wm_view3d(C));
   for (Object *obedit : objects) {
-    const BMesh *bm = BKE_editmesh_bmesh_get(obedit);
-    if (bm->totedgesel != 0) {
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
+
+    if (em->bm->totedgesel != 0) {
       valid_objects++;
     }
   }
@@ -161,10 +162,11 @@ static wmOperatorStatus mesh_bisect_invoke(bContext *C, wmOperator *op, const wm
     /* Store the mesh backups. */
     for (const int ob_index : objects.index_range()) {
       Object *obedit = objects[ob_index];
-      BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
-      if (bm->totedgesel != 0) {
+      BMEditMesh *em = BKE_editmesh_from_object(obedit);
+
+      if (em->bm->totedgesel != 0) {
         opdata->backup[ob_index].is_valid = true;
-        opdata->backup[ob_index].mesh_backup = EDBM_redo_state_store(bm);
+        opdata->backup[ob_index].mesh_backup = EDBM_redo_state_store(em);
       }
     }
 
@@ -296,11 +298,11 @@ static wmOperatorStatus mesh_bisect_exec(bContext *C, wmOperator *op)
   for (const int ob_index : objects.index_range()) {
     Object *obedit = objects[ob_index];
     BMEditMesh *em = BKE_editmesh_from_object(obedit);
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = em->bm;
 
     if (opdata != nullptr) {
       if (opdata->backup[ob_index].is_dirty) {
-        EDBM_redo_state_restore(&opdata->backup[ob_index].mesh_backup, em, bm, false);
+        EDBM_redo_state_restore(&opdata->backup[ob_index].mesh_backup, em, false);
         opdata->backup[ob_index].is_dirty = false;
       }
     }
@@ -326,7 +328,7 @@ static wmOperatorStatus mesh_bisect_exec(bContext *C, wmOperator *op)
 
     BMOperator bmop;
     EDBM_op_init(
-        bm,
+        em,
         &bmop,
         op,
         "bisect_plane geom=%hvef plane_co=%v plane_no=%v dist=%f clear_inner=%b clear_outer=%b",
@@ -338,7 +340,7 @@ static wmOperatorStatus mesh_bisect_exec(bContext *C, wmOperator *op)
         clear_outer);
     BMO_op_exec(bm, &bmop);
 
-    EDBM_flag_disable_all(bm, BM_ELEM_SELECT);
+    EDBM_flag_disable_all(em, BM_ELEM_SELECT);
 
     if (use_fill) {
       float normal_fill[3];
@@ -381,15 +383,15 @@ static wmOperatorStatus mesh_bisect_exec(bContext *C, wmOperator *op)
     BMO_slot_buffer_hflag_enable(
         bm, bmop.slots_out, "geom_cut.out", BM_VERT | BM_EDGE, BM_ELEM_SELECT, true);
 
-    if (EDBM_op_finish(bm, &bmop, op, true)) {
+    if (EDBM_op_finish(em, &bmop, op, true)) {
       EDBMUpdate_Params params{};
       params.calc_looptris = true;
       params.calc_normals = false;
       params.is_destructive = true;
       EDBM_update(id_cast<Mesh *>(obedit->data), &params);
 
-      EDBM_selectmode_flush(bm, em->selectmode);
-      EDBM_uvselect_clear(bm);
+      EDBM_selectmode_flush(em);
+      EDBM_uvselect_clear(em);
 
       ret = OPERATOR_FINISHED;
     }

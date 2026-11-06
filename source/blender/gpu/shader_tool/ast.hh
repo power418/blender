@@ -864,7 +864,7 @@ struct Declarator : Node {
 
   ArrayDecl array() const
   {
-    return child_last(NodeType::ArrayDecl);
+    return identifier().next();
   }
 
   BitField bitfield() const
@@ -948,7 +948,7 @@ struct FuncArg : Node {
     return declarator().identifier();
   }
 
-  ArrayDecl array() const
+  Subscript array() const
   {
     return declarator().array();
   }
@@ -982,9 +982,6 @@ struct FuncParamList : Node {
   struct Splat3 {
     Expr arg1, arg2, arg3;
   };
-  struct Splat4 {
-    Expr arg1, arg2, arg3, arg4;
-  };
 
   Splat1 splat_1() const
   {
@@ -999,19 +996,8 @@ struct FuncParamList : Node {
 
   Splat3 splat_3() const
   {
-    Node node1 = child_first();
-    Node node2 = node1.next();
-    Node node3 = node2.next();
-    return {node1, node2, node3};
-  }
-
-  Splat4 splat_4() const
-  {
-    Node node1 = child_first();
-    Node node2 = node1.next();
-    Node node3 = node2.next();
-    Node node4 = node3.next();
-    return {node1, node2, node3, node4};
+    Node node = child_first();
+    return {node, node.next(), node.next().next()};
   }
 };
 

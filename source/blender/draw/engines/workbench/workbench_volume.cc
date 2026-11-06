@@ -24,9 +24,7 @@ void VolumePass::sync(SceneResources &resources)
 {
   active_ = false;
   ps_.init();
-  /* Workaround limitation of PassSortable. Use dummy pass that will be sorted first in all
-   * circumstances. */
-  ps_.sub("Resource Bindings", FLT_MIN).bind_ubo(WB_WORLD_SLOT, resources.world_buf);
+  ps_.bind_ubo(WB_WORLD_SLOT, resources.world_buf);
 
   dummy_shadow_tx_.ensure_3d(
       gpu::TextureFormat::UNORM_8_8_8_8, int3(1), GPU_TEXTURE_USAGE_SHADER_READ, float4(1));
@@ -59,8 +57,7 @@ void VolumePass::object_sync_volume(Manager &manager,
 
   active_ = true;
 
-  PassSortable::Sub &sub_ps = ps_.sub(
-      "Volume Object SubPass", dot(ob_ref.object_to_world().location(), scene_state.view_forward));
+  PassMain::Sub &sub_ps = ps_.sub("Volume Object SubPass");
 
   const bool use_slice = (volume.display.axis_slice_method == VOLUME_AXIS_SLICE_SINGLE);
 
@@ -129,9 +126,7 @@ void VolumePass::object_sync_modifier(Manager &manager,
 
   active_ = true;
 
-  PassSortable::Sub &sub_ps = ps_.sub(
-      "Volume Modifier SubPass",
-      dot(ob_ref.object_to_world().location(), scene_state.view_forward));
+  PassMain::Sub &sub_ps = ps_.sub("Volume Modifier SubPass");
 
   const bool use_slice = settings.axis_slice_method == AXIS_SLICE_SINGLE;
 
@@ -217,7 +212,7 @@ void VolumePass::draw(Manager &manager, View &view, SceneResources &resources)
 
 void VolumePass::draw_slice_ps(Manager &manager,
                                SceneResources &resources,
-                               PassSortable::Sub &ps,
+                               PassMain::Sub &ps,
                                ObjectRef &ob_ref,
                                int slice_axis_enum,
                                float slice_depth)
@@ -238,12 +233,12 @@ void VolumePass::draw_slice_ps(Manager &manager,
   ps.push_constant("slice_axis", axis);
   ps.push_constant("step_length", step_length);
 
-  ps.draw(resources.volume_cube_batch.get(), manager.unique_handle(ob_ref));
+  ps.draw(resources.volume_cube_batch, manager.unique_handle(ob_ref));
 }
 
 void VolumePass::draw_volume_ps(Manager &manager,
                                 SceneResources &resources,
-                                PassSortable::Sub &ps,
+                                PassMain::Sub &ps,
                                 ObjectRef &ob_ref,
                                 int taa_sample,
                                 float3 slice_count,
@@ -260,7 +255,7 @@ void VolumePass::draw_volume_ps(Manager &manager,
   ps.push_constant("step_length", step_length);
   ps.push_constant("noise_ofs", float(noise_offset));
 
-  ps.draw(resources.volume_cube_batch.get(), manager.unique_handle(ob_ref));
+  ps.draw(resources.volume_cube_batch, manager.unique_handle(ob_ref));
 }
 
 }  // namespace blender::workbench

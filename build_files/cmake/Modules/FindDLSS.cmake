@@ -12,6 +12,8 @@ find_path(DLSS_INCLUDE_DIR
     PATHS
         "${DLSS_SDK_ROOT}/include"
         "$ENV{DLSS_SDK_ROOT}/include"
+        "${CMAKE_SOURCE_DIR}/extern/DLSS/include"
+        "${CMAKE_SOURCE_DIR}/extern/dlss/include"
 )
 
 include(FindPackageHandleStandardArgs)

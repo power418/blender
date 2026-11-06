@@ -8,8 +8,6 @@
  * \ingroup bke
  */
 
-#include <array>
-
 #include "BLI_array.hh"
 #include "BLI_math_vector_types.hh"
 #include "BLI_span.hh"
@@ -17,20 +15,17 @@
 
 namespace blender {
 
-struct BMesh;
-struct BMLoop;
+struct BMEditMesh;
 
 /**
  * \see #BKE_mesh_calc_loop_tangent, same logic but used arrays instead of #BMesh data.
  */
-Array<Array<float4>> BKE_editmesh_uv_tangents_calc(BMesh *bm,
-                                                   Span<std::array<BMLoop *, 3>> looptris,
+Array<Array<float4>> BKE_editmesh_uv_tangents_calc(BMEditMesh *em,
                                                    Span<float3> face_normals,
                                                    Span<float3> corner_normals,
                                                    Span<StringRef> uv_names);
 
-Array<float4> BKE_editmesh_orco_tangents_calc(BMesh *bm,
-                                              Span<std::array<BMLoop *, 3>> looptris,
+Array<float4> BKE_editmesh_orco_tangents_calc(BMEditMesh *em,
                                               Span<float3> face_normals,
                                               Span<float3> corner_normals,
                                               Span<float3> vert_orco);

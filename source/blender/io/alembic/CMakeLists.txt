@@ -33,7 +33,6 @@ set(SRC
   exporter/abc_export_capi.cc
   exporter/abc_hierarchy_iterator.cc
   exporter/abc_writer_abstract.cc
-  exporter/abc_writer_attribute.cc
   exporter/abc_writer_camera.cc
   exporter/abc_writer_curves.cc
   exporter/abc_writer_hair.cc
@@ -62,7 +61,6 @@ set(SRC
   exporter/abc_custom_props.h
   exporter/abc_hierarchy_iterator.h
   exporter/abc_writer_abstract.h
-  exporter/abc_writer_attribute.h
   exporter/abc_writer_camera.h
   exporter/abc_writer_curves.h
   exporter/abc_writer_hair.h

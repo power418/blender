@@ -49,7 +49,6 @@ void funcTfloat() {
               float a;
 #line 3
                    }
-
 )";
     auto [output, _, error] = process_test_string(input, Language::BSL);
     EXPECT_EQ(output, expect);
@@ -66,7 +65,6 @@ template void func<1 + 3>();
 int funcT4() {
 #line 3
              return 4; }
-
 )";
     auto [output, _, error] = process_test_string(input, Language::BSL);
     EXPECT_EQ(output, expect);
@@ -118,7 +116,6 @@ void _f(_ref(ATU ,this_), U _0);
   {
     _f(t);
   }
-#line 15
 )";
     auto [output, _, error] = process_test_string(input, Language::BSL);
     EXPECT_EQ(output, expect);
@@ -235,12 +232,11 @@ int bar()
 }
 )";
     string expect = R"(
-
 #define E char
 #line 2
-static constexpr char A = 0;
+static constexpr char E_A = 0;
 #line 2
-static constexpr char B  = 1;
+static constexpr char E_B  = 1;
                                int fooT17T2T_3() {
 #line 3
                                            return int(17 + 2 + -3);
@@ -623,7 +619,6 @@ ATfloat _method(ATfloat this_, float _0);
     c.a = b;
     return a;
   }
-#line 15
 )";
     auto [output, _, error] = process_test_string(input, Language::BSL);
     EXPECT_EQ(output, expect);

@@ -74,11 +74,6 @@ class StripInfoOperation : public NodeOperation {
           float2(strip->data->transform->scale_x, strip->data->transform->scale_y));
     }
   }
-
-  bool uses_asynchronous_execution() const override
-  {
-    return false;
-  }
 };
 
 static void node_extra_info(NodeExtraInfoParams &parameters)

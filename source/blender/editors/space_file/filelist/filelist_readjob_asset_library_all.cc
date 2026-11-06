@@ -12,8 +12,6 @@
 #include "BLI_listbase.hh"
 #include "BLI_string.hh"
 
-#include "BKE_preferences.h"
-
 #include "filelist_intern.hh"
 #include "filelist_readjob.hh"
 
@@ -118,7 +116,7 @@ static void filelist_start_job_all_asset_library(FileListReadJob *job_params)
   }
 
   asset_system::foreach_registered_user_remote_library([&](bUserAssetLibrary &library) {
-    if (!BKE_preferences_asset_library_is_available(&U, &library)) {
+    if (!library.is_enabled()) {
       return;
     }
 

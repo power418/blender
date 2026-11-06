@@ -244,12 +244,10 @@ enum GPUType {
   GPU_TEX2D_ARRAY,
   GPU_TEX3D,
 
-  /* Struct types. */
+  /* GLSL Struct types */
   GPU_CLOSURE,
-  GPU_KERNEL_GLOBALS,
-  GPU_SHADING_DATA,
 
-  /* Vertex Attributes. */
+  /* Opengl Attributes */
   GPU_ATTR,
 };
 
@@ -283,8 +281,6 @@ constexpr int gpu_type_element_count(const GPUType type)
     case GPU_TEX3D:
     case GPU_CLOSURE:
     case GPU_ATTR:
-    case GPU_KERNEL_GLOBALS:
-    case GPU_SHADING_DATA:
       break;
   }
 
@@ -454,8 +450,6 @@ inline GPUNodeStackValue GPU_node_stack_default_value(const GPUType type)
     case GPU_TEX3D:
     case GPU_CLOSURE:
     case GPU_ATTR:
-    case GPU_KERNEL_GLOBALS:
-    case GPU_SHADING_DATA:
       break;
   }
 
@@ -615,8 +609,6 @@ struct GPUCodegenOutput {
   GPUShaderCreateInfo *create_info;
 };
 
-GPUNodeLink *GPU_shading_data();
-GPUNodeLink *GPU_kernel_globals();
 GPUNodeLink *GPU_constant(const float *num);
 GPUNodeLink *GPU_uniform(const float *num);
 GPUNodeLink *GPU_constant(const int *num);

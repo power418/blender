@@ -268,7 +268,6 @@ float4 _c(A this_) {
 void _c_set_(_ref(A ,this_), float4 v) {
   this_._0 = v.c;
 }
-#line 8
 )";
     auto [output, _, error] = process_test_string(input, Language::BSL);
     EXPECT_EQ(output, expect);
@@ -837,18 +836,6 @@ U U_ctor_() {U r;r._pad=0;return r;}
          void U_fn() {
 #line 5
                     }
-
-)";
-    auto [output, _, error] = process_test_string(input, Language::BSL);
-    EXPECT_EQ(output, expect);
-    EXPECT_EQ(error, "");
-  }
-  {
-    string input = R"(
-enum : int { VALUE = 0 };
-)";
-    string expect = R"(
-static constexpr int VALUE  = 0;
 )";
     auto [output, _, error] = process_test_string(input, Language::BSL);
     EXPECT_EQ(output, expect);
@@ -893,7 +880,6 @@ struct S {
 };
 #line 4
   S S_ctor_() {S r;r.i=0;r.a0_=S_a0_ctor_();r.c=S_C_ctor_();return r;}
-#line 13
 )";
     auto [output, _, error] = process_test_string(input, Language::BSL);
     EXPECT_EQ(output, expect);
@@ -1163,26 +1149,6 @@ void fn() {
     auto [output, _, error] = process_test_string(input, Language::BSL);
     EXPECT_EQ(output, expect);
     EXPECT_EQ(error, "");
-  }
-  {
-    string input = R"(
-struct T{int a,b;};
-void fn() {
-  T t10=T{.a=1,.c=1,.b=1};
-}
-)";
-    auto [output, _, error] = process_test_string(input, Language::BSL);
-    EXPECT_EQ(error, "Field designator 'c' does not refer to any field in type 'T'");
-  }
-  {
-    string input = R"(
-struct T{int a,b;};
-void fn() {
-  T t10=T{.b=1,.a=1};
-}
-)";
-    auto [output, _, error] = process_test_string(input, Language::BSL);
-    EXPECT_EQ(error, "Field designator 'a' needs to be specified in declaration order");
   }
 }
 

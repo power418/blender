@@ -15,8 +15,6 @@
 
 #include "GPU_batch.hh"
 
-#include "draw_meshlet.hh"
-
 #include "eevee_camera.hh"
 #include "eevee_material.hh"
 #include "eevee_shadow_shared.hh"
@@ -221,7 +219,7 @@ class ShadowModule {
   PassSimple tilemap_update_ps_ = {"TilemapUpdate"};
 
   PassMain::Sub *tilemap_usage_transparent_ps_ = nullptr;
-  BatchPtr box_batch_;
+  gpu::Batch *box_batch_ = nullptr;
   /* Source texture for depth buffer analysis. */
   gpu::Texture *src_depth_tx_ = nullptr;
 
@@ -340,6 +338,11 @@ class ShadowModule {
 
  public:
   ShadowModule(Instance &inst, ShadowSceneData &data);
+
+  ~ShadowModule()
+  {
+    GPU_BATCH_DISCARD_SAFE(box_batch_);
+  }
 
   void init();
 

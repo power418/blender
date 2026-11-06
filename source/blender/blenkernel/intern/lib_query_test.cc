@@ -33,7 +33,6 @@
 
 namespace blender::bke::tests {
 
-namespace {
 class TestData {
  public:
   Main *bmain = nullptr;
@@ -126,7 +125,6 @@ class IDSubDataTestData : public WholeIDTestData {
     BKE_id_free(this->bmain, &this->material->id);
   }
 };
-}  // namespace
 
 /* -------------------------------------------------------------------- */
 /** \name Query Tests
@@ -404,7 +402,7 @@ class UnusedIDsTestData : public TestData {
     /* Disconnected graph of mixed local and linked IDs. */
     make_islands(nullptr, this->library);
 
-    /* Ensure all ID refcounts are valid. */
+    /* Ensure all ID refcountings are valid. */
     BKE_main_id_refcount_recompute(this->bmain, false);
   }
 };

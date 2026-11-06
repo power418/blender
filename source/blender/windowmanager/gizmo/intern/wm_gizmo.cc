@@ -506,8 +506,7 @@ int wm_gizmo_is_visible(wmGizmo *gz)
     return 0;
   }
   if ((gz->flag & WM_GIZMO_DRAW_HOVER) && !(gz->state & WM_GIZMO_STATE_HIGHLIGHT) &&
-      /* Still draw selected gizmos. */
-      !(gz->state & WM_GIZMO_STATE_SELECT))
+      !(gz->state & WM_GIZMO_STATE_SELECT)) /* Still draw selected gizmos. */
   {
     /* Update but don't draw. */
     return WM_GIZMO_IS_VISIBLE_UPDATE;

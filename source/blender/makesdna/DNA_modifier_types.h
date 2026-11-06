@@ -1356,7 +1356,7 @@ enum SolidifyModifierMode : char {
 };
 
 /** #SolidifyModifierData.nonmanifold_offset_mode */
-enum SolidifyModifierNonManifoldOffsetMode : char {
+enum SolifyModifierNonManifoldOffsetMode : char {
   MOD_SOLIDIFY_NONMANIFOLD_OFFSET_MODE_FIXED = 0,
   MOD_SOLIDIFY_NONMANIFOLD_OFFSET_MODE_EVEN = 1,
   MOD_SOLIDIFY_NONMANIFOLD_OFFSET_MODE_CONSTRAINTS = 2,
@@ -1390,7 +1390,7 @@ struct SolidifyModifierData {
   SolidifyModifierMode mode = MOD_SOLIDIFY_MODE_EXTRUDE;
 
   /** Variables for #MOD_SOLIDIFY_MODE_NONMANIFOLD. */
-  SolidifyModifierNonManifoldOffsetMode nonmanifold_offset_mode =
+  SolifyModifierNonManifoldOffsetMode nonmanifold_offset_mode =
       MOD_SOLIDIFY_NONMANIFOLD_OFFSET_MODE_CONSTRAINTS;
   SolidifyModifierNonManifoldBoundaryMode nonmanifold_boundary_mode =
       MOD_SOLIDIFY_NONMANIFOLD_BOUNDARY_MODE_NONE;
@@ -1575,7 +1575,7 @@ struct WarpModifierData {
 /* Defines common to all WeightVG modifiers. */
 
 /** #WeightVGEdit.edit_flags */
-enum WeightVGEditModifierEditFlags : short {
+enum WeigthVGEditModifierEditFlags : short {
   MOD_WVG_EDIT_WEIGHTS_NORMALIZE = (1 << 0),
   MOD_WVG_INVERT_FALLOFF = (1 << 1),
   MOD_WVG_EDIT_INVERT_VGROUP_MASK = (1 << 2),
@@ -1584,7 +1584,7 @@ enum WeightVGEditModifierEditFlags : short {
   /** Remove vertices with lower weight than threshold from vgroup. */
   MOD_WVG_EDIT_REMFVG = (1 << 4),
 };
-ENUM_OPERATORS(WeightVGEditModifierEditFlags);
+ENUM_OPERATORS(WeigthVGEditModifierEditFlags);
 
 /** #WeightVGMixModifierData.mix_mode (how second vgroup's weights affect first ones). */
 enum WeightVGMixModifierMixMode : char {
@@ -1689,7 +1689,7 @@ struct WeightVGEditModifierData {
   /** Name of vertex group to edit. */
   char defgrp_name[/*MAX_VGROUP_NAME*/ 64] = "";
 
-  WeightVGEditModifierEditFlags edit_flags = {};
+  WeigthVGEditModifierEditFlags edit_flags = {};
   /** Using MOD_WVG_MAPPING_* defines. */
   WeightVGProximityFalloff falloff_type = MOD_WVG_MAPPING_NONE;
   /** Weight for vertices not in vgroup. */

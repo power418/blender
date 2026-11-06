@@ -12,9 +12,7 @@
 
 namespace blender::compositor {
 
-Context::Context(StaticCacheManager &cache_manager,
-                 bke::ComputeContextCache &compute_context_cache)
-    : cache_manager_(cache_manager), compute_context_cache_(compute_context_cache) {};
+Context::Context(StaticCacheManager &cache_manager) : cache_manager_(cache_manager) {};
 
 Result Context::get_pass(const Scene * /*scene*/, int /*view_layer*/, const char * /*name*/)
 {
@@ -60,10 +58,7 @@ nodes::eval_log::NodesEvalLog *Context::nodes_evaluation_log() const
   return nullptr;
 }
 
-bool Context::supports_canceling() const
-{
-  return false;
-}
+void Context::evaluate_operation_post() const {}
 
 bool Context::is_canceled() const
 {
@@ -88,14 +83,14 @@ float Context::get_time() const
   return frame_number / frame_rate;
 }
 
-eCompositorDenoiseQuality Context::get_denoise_quality() const
+eCompositorDenoiseQaulity Context::get_denoise_quality() const
 {
   if (this->render_context()) {
-    return static_cast<eCompositorDenoiseQuality>(
+    return static_cast<eCompositorDenoiseQaulity>(
         this->get_render_data().compositor_denoise_final_quality);
   }
 
-  return static_cast<eCompositorDenoiseQuality>(
+  return static_cast<eCompositorDenoiseQaulity>(
       this->get_render_data().compositor_denoise_preview_quality);
 }
 
@@ -122,11 +117,6 @@ Result Context::create_result(ResultType type)
 StaticCacheManager &Context::cache_manager()
 {
   return cache_manager_;
-}
-
-bke::ComputeContextCache &Context::compute_context_cache() const
-{
-  return compute_context_cache_;
 }
 
 const Strip *Context::get_strip() const

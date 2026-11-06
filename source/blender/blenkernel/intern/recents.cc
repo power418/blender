@@ -12,7 +12,6 @@
 
 #include <atomic>
 #include <condition_variable>
-#include <map>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -28,7 +27,7 @@
 
 namespace blender::recents {
 
-constexpr toml::spec version = toml::spec::v(1, 0, 0);
+constexpr toml::spec version = toml::spec::v(1, 1, 0);
 
 /* TOML storage. Protected by recents_mutex. */
 static Mutex recents_mutex;      /* protects TOML values */
@@ -228,59 +227,36 @@ template<typename T> T Section::get(const std::string &item_key) const
 
   std::lock_guard lock(recents_mutex);
 
-  const T default_value{};
   const toml::value &current = current_get();
 
   /* Try user value first. */
   if (const toml::value *v = recents_find_in(current, section_, item_key)) {
-    return toml::get_or(*v, default_value);
+    return toml::get_or(*v, T{});
   }
 
   const toml::value &defaults = defaults_get();
 
   /* Per-key default value. */
   if (const toml::value *v = recents_find_in(defaults, section_, item_key)) {
-    return toml::get_or(*v, default_value);
+    return toml::get_or(*v, T{});
   }
 
   /* User's section-level "_default" (user override of section default). */
   if (!section_.empty()) {
     if (const toml::value *v = recents_find_in(current, section_, "_default")) {
-      return toml::get_or(*v, default_value);
+      return toml::get_or(*v, T{});
     }
   }
 
   /* Builtin section-level "_default". */
   if (!section_.empty()) {
     if (const toml::value *v = recents_find_in(defaults, section_, "_default")) {
-      return toml::get_or(*v, default_value);
+      return toml::get_or(*v, T{});
     }
   }
 
   /* Final fallback. False, 0, 0,0f, {}, etc. */
-  return default_value;
-}
-
-/**
- * Write arrays of tables as one inline table per line, instead of `[[section.key]]` blocks:
- * `key = [\n  { a = 1, b = 2 },\n]`.
- */
-static void recents_format_inline_tables(toml::value &value)
-{
-  if (!value.is_array()) {
-    return;
-  }
-
-  bool has_tables = false;
-  for (toml::value &item : value.as_array()) {
-    if (item.is_table()) {
-      item.as_table_fmt().fmt = toml::table_format::oneline;
-      has_tables = true;
-    }
-  }
-  if (has_tables) {
-    value.as_array_fmt().fmt = toml::array_format::multiline;
-  }
+  return T{};
 }
 
 template<typename T> void Section::set(const std::string &item_key, const T &value)
@@ -289,18 +265,12 @@ template<typename T> void Section::set(const std::string &item_key, const T &val
   toml::value &current = current_get();
 
   std::lock_guard lock(recents_mutex);
-  toml::value *table = &current;
-  if (!section_.empty()) {
-    table = &current[section_];
-    /* Replace with empty table if it's a different data type, to avoid exception. */
-    if (!table->is_table()) {
-      *table = toml::table{};
-    }
+  if (section_.empty()) {
+    current[item_key] = value;
   }
-
-  toml::value &item = (*table)[item_key];
-  item = value;
-  recents_format_inline_tables(item);
+  else {
+    current[section_][item_key] = value;
+  }
 }
 
 void Section::remove(const std::string &item_key)
@@ -383,10 +353,5 @@ template void Section::set<std::vector<double>>(const std::string &item_key,
 template std::vector<float> Section::get<std::vector<float>>(const std::string &item_key) const;
 template void Section::set<std::vector<float>>(const std::string &item_key,
                                                const std::vector<float> &value);
-
-template std::vector<std::map<std::string, std::string>> Section::get<
-    std::vector<std::map<std::string, std::string>>>(const std::string &item_key) const;
-template void Section::set<std::vector<std::map<std::string, std::string>>>(
-    const std::string &item_key, const std::vector<std::map<std::string, std::string>> &value);
 
 }  // namespace blender::recents

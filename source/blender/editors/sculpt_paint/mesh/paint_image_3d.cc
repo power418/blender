@@ -35,7 +35,6 @@
 #include "IMB_colormanagement.hh"
 #include "IMB_imbuf.hh"
 
-#include "BKE_attribute.hh"
 #include "BKE_brush.hh"
 #include "BKE_image_wrappers.hh"
 #include "BKE_object_types.hh"
@@ -83,25 +82,10 @@ std::unique_ptr<ImageData> ImageData::init_active_image(Object &ob, ImagePaintSe
 
   return image_data;
 }
-std::unique_ptr<ImageData> ImageData::init_mask_image(ImagePaintSettings &settings)
-{
-  if (!settings.stencil) {
-    return nullptr;
-  }
-
-  std::unique_ptr<ImageData> image_data = std::make_unique<ImageData>();
-  image_data->image = settings.stencil;
-  image_data->image_user = ImageUser{};
-
-  BLI_assert(image_data->image);
-
-  return image_data;
-}
 
 static void fetch_image_buffers(ImageData &image_data,
                                 bke::pbvh::Node & /*node*/,
-                                PixelNode &pixel_node,
-                                const bool is_mask_brush)
+                                PixelNode &pixel_node)
 {
   PRF_scope(ProfileCategory::Editor);
   for (const UDIMTilePixels &tile : pixel_node.tiles) {
@@ -127,17 +111,21 @@ static void fetch_image_buffers(ImageData &image_data,
         return Array<uint8_t>(int64_t(tiles_x) * tiles_y, 0);
       });
       image_data.processors.lookup_or_add_cb(tile.tile_number, [&]() {
-        const ColorSpace &buffer_colorspace = buffer->float_data() ? buffer->float_colorspace() :
-                                                                     buffer->byte_colorspace();
+        const StringRefNull buffer_colorspace_name =
+            buffer->float_data() ? IMB_colormanagement_get_float_colorspace(buffer) :
+                                   IMB_colormanagement_get_byte_colorspace(buffer);
+
+        const ColorSpace *buffer_colorspace = IMB_colormanagement_space_get_named(
+            buffer_colorspace_name);
 
         TileColorspaceProcessor processor;
-        if (is_mask_brush) {
+        if (!buffer_colorspace) {
           return processor;
         }
 
         /* Fast path for sRGB byte, to avoid overhead of calling into OpenColorIO. */
         if (!buffer->float_data() && buffer->byte_data() &&
-            IMB_colormanagement_space_is_srgb(&buffer_colorspace))
+            IMB_colormanagement_space_is_srgb(buffer_colorspace))
         {
           processor.is_srgb_byte = true;
           processor.is_noop = false;
@@ -145,14 +133,14 @@ static void fetch_image_buffers(ImageData &image_data,
         }
 
         ColormanageProcessor buffer_to_linear =
-            ColormanageProcessor::colorspace_processor_to_scene_linear_new(buffer_colorspace);
+            ColormanageProcessor::colorspace_processor_to_scene_linear_new(*buffer_colorspace);
         if (buffer_to_linear.is_noop()) {
           return processor;
         }
 
         processor.buffer_to_linear_processor = std::move(buffer_to_linear);
         processor.linear_to_buffer_processor =
-            ColormanageProcessor::colorspace_processor_from_scene_linear_new(buffer_colorspace);
+            ColormanageProcessor::colorspace_processor_from_scene_linear_new(*buffer_colorspace);
         processor.is_noop = false;
 
         return processor;
@@ -213,22 +201,8 @@ static BitVector<> init_uv_primitives_brush_test(SculptSession &ss,
   return brush_test;
 }
 
-static void apply_selection_filter(const Span<int> corner_tri_faces,
-                                   const Span<int> tri_indices,
-                                   const Span<bool> select_poly,
-                                   BitVector<> &brush_test)
-{
-  BLI_assert(tri_indices.size() == brush_test.size());
-
-  for (const int i : tri_indices.index_range()) {
-    const bool current = brush_test[i];
-    brush_test[i].set(current && select_poly[corner_tri_faces[tri_indices[i]]]);
-  }
-}
-
 /** Cached settings for faster paint blending. */
 struct PaintBlendSettings {
-  PaintBlendSettings() = default;
   PaintBlendSettings(const Paint &paint, const Brush &brush, const bool invert)
   {
     brush_color = float4(invert ? BKE_brush_secondary_color_get(&paint, &brush) :
@@ -243,16 +217,6 @@ struct PaintBlendSettings {
   IMB_BlendMode blend_mode;
 };
 
-static PaintBlendSettings mask_brush_blend_settings(const Brush &brush, const bool invert)
-{
-  PaintBlendSettings blend_settings;
-  blend_settings.brush_color = float4(invert ? float3(1.0f - brush.weight) : float3(brush.weight),
-                                      1.0f);
-  blend_settings.brush_alpha = brush.alpha;
-  blend_settings.blend_mode = IMB_BlendMode(brush.blend);
-  return blend_settings;
-}
-
 /** Blend one pixel with the brush. */
 BLI_INLINE float4 paint_blend_pixel(const float4 &brush_color,
                                     const float brush_alpha,
@@ -261,15 +225,15 @@ BLI_INLINE float4 paint_blend_pixel(const float4 &brush_color,
                                     const float factor,
                                     const float4 color)
 {
-  const float4 paint_color = brush_color * (factor * brush_alpha);
-  /* Many blend modes don't write alpha to the result, so copy it. */
-  float4 result = color;
+  float4 result;
+  blend_color_mix_float(result, color, brush_color * factor);
+  result *= brush_alpha;
   /* TODO: try making IMB_blend_color_float inline instead. */
   if (is_mix) {
-    blend_color_mix_float(result, color, paint_color);
+    blend_color_mix_float(result, color, result);
   }
   else {
-    IMB_blend_color_float(result, color, paint_color, blend_mode);
+    IMB_blend_color_float(result, color, result, blend_mode);
   }
   return result;
 }
@@ -501,14 +465,10 @@ static void mark_seam_tiles_modified(MutableSpan<uint8_t> mask,
   }
 }
 
-static void do_paint_pixels(const PaintBlendSettings &blend_settings,
-                            const Brush &brush,
+static void do_paint_pixels(const Depsgraph &depsgraph,
                             Object &object,
-                            Span<float3> positions_eval,
-                            Span<int> corner_verts,
-                            Span<int3> corner_tris,
-                            Span<int> corner_tri_faces,
-                            Span<bool> select_poly,
+                            const Paint &paint,
+                            const Brush &brush,
                             ImageData &image_data,
                             bke::pbvh::Node & /*node*/,
                             PixelNode &pixel_node)
@@ -516,14 +476,15 @@ static void do_paint_pixels(const PaintBlendSettings &blend_settings,
   PRF_scope(ProfileCategory::Editor);
   SculptSession &ss = *object.runtime->sculpt_session;
   const StrokeCache &cache = *ss.cache;
-  BitVector<> brush_test = init_uv_primitives_brush_test(
-      ss, corner_verts, corner_tris, pixel_node.uv_primitives.tri_indices, positions_eval);
+  const Span<float3> positions = bke::pbvh::vert_positions_eval(depsgraph, object);
 
-  if (!select_poly.is_empty()) {
-    BLI_assert(!corner_tri_faces.is_empty());
-    apply_selection_filter(
-        corner_tri_faces, pixel_node.uv_primitives.tri_indices, select_poly, brush_test);
-  }
+  const Mesh &mesh = *id_cast<const Mesh *>(object.data);
+  const Span<int> corner_verts = mesh.corner_verts();
+  const Span<int3> corner_tris = mesh.corner_tris();
+  BitVector<> brush_test = init_uv_primitives_brush_test(
+      ss, corner_verts, corner_tris, pixel_node.uv_primitives.tri_indices, positions);
+
+  const PaintBlendSettings blend_settings(paint, brush, ss.cache->toggle_settings.invert);
 
 #ifdef DEBUG_PIXEL_NODES
   float4 debug_color;
@@ -622,8 +583,7 @@ static void do_paint_pixels(const PaintBlendSettings &blend_settings,
             filter_distances_with_radius(cache.radius, tri_distances, tri_factors);
             apply_hardness_to_distances(cache, tri_distances);
             calc_brush_strength_factors(cache, brush, tri_distances, tri_factors);
-            calc_brush_texture_factors(
-                PaintMode::Texture3D, ss, brush, tri_positions, tri_factors);
+            calc_brush_texture_factors(ss, brush, tri_positions, tri_factors);
             scale_factors(tri_factors, cache.bstrength);
 
             /* Track which subset of the run has non-zero factors. */
@@ -717,7 +677,7 @@ static void do_paint_pixels(const PaintBlendSettings &blend_settings,
                                  span.x + span.size - 1,
                                  span.y);
         const int2 start(span.x, span.y);
-        const int2 end = start + int2(span.size, 1);
+        const int2 end = start + int2(span.size + 1, 0);
         dirty_bounds = bounds::merge(dirty_bounds, Bounds<int2>(start, end));
       }
     }
@@ -757,20 +717,16 @@ static void fix_non_manifold_seam_bleeding(bke::pbvh::Tree &pbvh,
       continue;
     }
     const MutableSpan<uint32_t> undo_tile_pushed = image_data.undo_tile_pushed.lookup(tile_number);
-    const MutableSpan<uint8_t> seam_tile_modified = image_data.seam_tile_modified.lookup(
-        tile_number);
 
     bke::pbvh::pixels::copy_pixels(
         pbvh,
         image_data.image_buffers,
         tile_number,
-        seam_tile_modified,
+        image_data.seam_tile_modified.lookup(tile_number),
         [&](const int x_start, const int x_end, const int y) {
           push_undo_tiles(
               image_data, tile_number, *image_buffer, undo_tile_pushed, x_start, x_end, y);
         });
-
-    seam_tile_modified.fill(0);
   }
 }
 
@@ -800,51 +756,24 @@ void do_3d_image_paint_brush(const Depsgraph &depsgraph,
   PixelData &pixel_data = *pbvh.pixels_;
   MutableSpan<PixelNode> pixel_nodes = pixel_data.nodes;
 
-  const bool is_mask_brush = brush.image_brush_type == IMAGE_PAINT_BRUSH_TYPE_MASK;
-  const bool is_inverted = ob.runtime->sculpt_session->cache->toggle_settings.invert;
-  const PaintBlendSettings blend_settings = is_mask_brush ?
-                                                mask_brush_blend_settings(brush, is_inverted) :
-                                                PaintBlendSettings(paint, brush, is_inverted);
+  node_mask.foreach_index(
+      [&](const int i) { fetch_image_buffers(image_data, nodes[i], pixel_nodes[i]); });
 
-  node_mask.foreach_index([&](const int i) {
-    fetch_image_buffers(image_data, nodes[i], pixel_nodes[i], is_mask_brush);
-  });
-
-  const Span<float3> positions = bke::pbvh::vert_positions_eval(depsgraph, ob);
-
-  const Mesh &mesh = *id_cast<const Mesh *>(ob.data);
-  const Span<int> corner_verts = mesh.corner_verts();
-  const Span<int3> corner_tris = mesh.corner_tris();
-
-  const bool use_face_sel = (mesh.editflag & ME_EDIT_PAINT_FACE_SEL) != 0;
-  VArraySpan<bool> select_poly;
-  Span<int> corner_tri_faces;
-  if (use_face_sel) {
-    const bke::AttributeAccessor attributes = mesh.attributes();
-    select_poly = *attributes.lookup<bool>(".select_poly", bke::AttrDomain::Face);
-    corner_tri_faces = mesh.corner_tri_faces();
+  for (Array<uint8_t> &modified : image_data.seam_tile_modified.values()) {
+    modified.as_mutable_span().fill(0);
   }
 
   node_mask.foreach_index(
       [&](const int i) {
-        do_paint_pixels(blend_settings,
-                        brush,
-                        ob,
-                        positions,
-                        corner_verts,
-                        corner_tris,
-                        corner_tri_faces,
-                        select_poly,
-                        image_data,
-                        nodes[i],
-                        pixel_nodes[i]);
+        do_paint_pixels(depsgraph, ob, paint, brush, image_data, nodes[i], pixel_nodes[i]);
       },
       exec_mode::grain_size(1));
 
   fix_non_manifold_seam_bleeding(ob, image_data, nodes, pixel_nodes, node_mask);
 
   node_mask.foreach_index([&](const int i) {
-    bke::pbvh::pixels::mark_image_dirty(nodes[i], pixel_nodes[i], image_data.image_buffers);
+    bke::pbvh::pixels::mark_image_dirty(
+        nodes[i], pixel_nodes[i], *image_data.image, image_data.image_buffers);
   });
 }
 }  // namespace ed::sculpt_paint::image

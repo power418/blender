@@ -57,7 +57,8 @@ static void test_draw_curves_lib()
                                          float4{2.0f}});
 
   UniformBuffer<CurvesInfos> curves_info_buf;
-  curves_info_buf.is_point_attribute = 0b10;
+  curves_info_buf.is_point_attribute[0].x = 0;
+  curves_info_buf.is_point_attribute[1].x = 1;
   /* Ribbon. */
   curves_info_buf.vertex_per_segment = 2;
   curves_info_buf.half_cylinder_face_count = 1;
@@ -81,9 +82,7 @@ static void test_draw_curves_lib()
     pass.bind_texture("curves_indirection_buf", indirection_ribbon_buf);
     pass.bind_ssbo("result_pos_buf", result_pos);
     pass.bind_ssbo("result_indices_buf", result_idx);
-    /* The test owns the batch; wrap it without ownership for command recording. */
-    Batch batch(batch_ribbon, false);
-    pass.draw(&batch);
+    pass.draw(batch_ribbon);
     pass.barrier(GPU_BARRIER_BUFFER_UPDATE);
 
     manager.submit(pass);
@@ -152,9 +151,7 @@ static void test_draw_curves_lib()
     pass.bind_texture("curves_indirection_buf", indirection_cylinder_buf);
     pass.bind_ssbo("result_pos_buf", result_pos);
     pass.bind_ssbo("result_indices_buf", result_idx);
-    /* The test owns the batch; wrap it without ownership for command recording. */
-    Batch batch(batch_cylinder, false);
-    pass.draw(&batch);
+    pass.draw(batch_cylinder);
     pass.barrier(GPU_BARRIER_BUFFER_UPDATE);
 
     manager.submit(pass);

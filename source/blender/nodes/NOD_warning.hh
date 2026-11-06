@@ -16,7 +16,6 @@
 namespace blender {
 
 struct Report;
-enum NodeWarningPropagation : int8_t;
 
 namespace nodes {
 
@@ -46,8 +45,6 @@ struct NodeWarning {
 int node_warning_type_icon(NodeWarningType type);
 int node_warning_type_severity(NodeWarningType type);
 StringRefNull node_warning_type_name(NodeWarningType type);
-
-bool warning_is_propagated(NodeWarningPropagation propagation, NodeWarningType type);
 
 }  // namespace nodes
 }  // namespace blender

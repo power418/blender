@@ -97,11 +97,11 @@ void GPU_matrix_reset()
 #ifdef WITH_GPU_SAFETY
 
 /* Check if matrix is numerically good */
-static void checkmat(const float *m)
+static void checkmat(cosnt float *m)
 {
   const int n = 16;
   for (int i = 0; i < n; i++) {
-#  ifdef _MSC_VER
+#  if _MSC_VER
     BLI_assert(_finite(m[i]));
 #  else
     BLI_assert(!isinf(m[i]));
@@ -148,21 +148,21 @@ void GPU_matrix_pop_projection()
 void GPU_matrix_set(const float m[4][4])
 {
   copy_m4_m4(ModelView, m);
-  CHECKMAT(ModelView);
+  CHECKMAT(ModelView3D);
   gpu_matrix_state_active_set_dirty(true);
 }
 
 void GPU_matrix_identity_projection_set()
 {
   unit_m4(Projection);
-  CHECKMAT(Projection);
+  CHECKMAT(Projection3D);
   gpu_matrix_state_active_set_dirty(true);
 }
 
 void GPU_matrix_projection_set(const float m[4][4])
 {
   copy_m4_m4(Projection, m);
-  CHECKMAT(Projection);
+  CHECKMAT(Projection3D);
   gpu_matrix_state_active_set_dirty(true);
 }
 
@@ -416,7 +416,7 @@ void GPU_matrix_ortho_2d_set(float left, float right, float bottom, float top)
 {
   Mat4 m;
   mat4_ortho_set(m, left, right, bottom, top, -1.0f, 1.0f);
-  CHECKMAT(m);
+  CHECKMAT(Projection2D);
   gpu_matrix_state_active_set_dirty(true);
 }
 

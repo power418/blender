@@ -79,12 +79,8 @@ class GreasePencil : Overlay {
 
     switch (state.object_mode) {
       case OB_MODE_PAINT_GREASE_PENCIL:
-        /* In Draw Mode, show selected strokes when a selection tool is active. */
-        if (state.active_tool && (STREQ(state.active_tool->idname, "builtin.select_lasso") ||
-                                  STREQ(state.active_tool->idname, "builtin.select_circle") ||
-                                  STREQ(state.active_tool->idname, "builtin.select") ||
-                                  STREQ(state.active_tool->idname, "builtin.select_box")))
-        {
+        /* In Draw Mode, show selected strokes when the lasso selection tool is active. */
+        if (state.active_tool && STREQ(state.active_tool->idname, "builtin.select_lasso")) {
           show_lines_ = true;
           skip_unselected_ = true;
         }
@@ -201,21 +197,22 @@ class GreasePencil : Overlay {
     Object *ob = ob_ref.object;
 
     if (show_lines_) {
-      Batch *geom = show_weight_ ? DRW_cache_grease_pencil_weight_lines_get(state.scene, ob) :
-                                   DRW_cache_grease_pencil_edit_lines_get(state.scene, ob);
+      gpu::Batch *geom = show_weight_ ? DRW_cache_grease_pencil_weight_lines_get(state.scene, ob) :
+                                        DRW_cache_grease_pencil_edit_lines_get(state.scene, ob);
       if (geom) {
         edit_lines_->draw(geom, manager.unique_handle(ob_ref));
       }
     }
     if (show_handles_) {
-      Batch *geom = DRW_cache_grease_pencil_edit_handles_get(state.scene, ob);
+      gpu::Batch *geom = DRW_cache_grease_pencil_edit_handles_get(state.scene, ob);
       if (geom) {
         edit_handles_->draw_expand(geom, GPU_PRIM_TRIS, 8, 1, manager.unique_handle(ob_ref));
       }
     }
     if (show_points_) {
-      Batch *geom = show_weight_ ? DRW_cache_grease_pencil_weight_points_get(state.scene, ob) :
-                                   DRW_cache_grease_pencil_edit_points_get(state.scene, ob);
+      gpu::Batch *geom = show_weight_ ?
+                             DRW_cache_grease_pencil_weight_points_get(state.scene, ob) :
+                             DRW_cache_grease_pencil_edit_points_get(state.scene, ob);
       if (geom) {
         edit_points_->draw(geom, manager.unique_handle(ob_ref));
       }
@@ -420,7 +417,7 @@ class GreasePencil : Overlay {
           return;
         }
 
-        Batch *geom = draw::DRW_cache_grease_pencil_get(scene, ob);
+        gpu::Batch *geom = draw::DRW_cache_grease_pencil_get(scene, ob);
 
         const bool show_stroke = !hide_stroke[curve_i];
         const bool show_fill = (num_stroke_triangles != 0) && active_filled;

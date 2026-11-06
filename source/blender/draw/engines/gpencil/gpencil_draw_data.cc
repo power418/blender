@@ -11,12 +11,10 @@
 #include "DNA_light_types.h"
 #include "DNA_material_types.h"
 
-#include "BKE_colorband.hh"
 #include "BKE_image.hh"
 #include "BKE_image_gpu.hh"
 #include "BKE_material.hh"
 
-#include "BLI_math_color_c.hh"
 #include "BLI_math_matrix_c.hh"
 #include "BLI_math_vector_c.hh"
 #include "BLI_memblock.hh"
@@ -53,33 +51,6 @@ static gpu::Texture *gpencil_image_texture_get(blender::Image *image, bool *r_al
   gpu_tex = BKE_image_acquire_gpu_texture(image, &iuser);
   DRW_manager_get()->hold_texture(gpu_tex);
   *r_alpha_premult = (gpu_tex) ? (image->alpha_mode == IMA_ALPHA_PREMUL) : false;
-
-  return gpu_tex;
-}
-
-static gpu::Texture *gpencil_gradient_texture_create(const ColorBand *coba)
-{
-  gpu::Texture *gpu_tex = nullptr;
-
-  float *data;
-  int size;
-
-  BKE_colorband_evaluate_table_rgba(coba, &data, &size);
-
-  for (const int i : IndexRange(size)) {
-    linearrgb_to_srgb_v4(&data[i * 4], &data[i * 4]);
-  }
-
-  gpu_tex = GPU_texture_create_2d("color_gradient",
-                                  size,
-                                  1,
-                                  1,
-                                  gpu::TextureFormat::SRGBA_8_8_8_8,
-                                  GPU_TEXTURE_USAGE_SHADER_READ,
-                                  data);
-
-  DRW_manager_get()->hold_texture(gpu_tex);
-  MEM_delete(data);
 
   return gpu_tex;
 }
@@ -359,8 +330,7 @@ MaterialPool *gpencil_material_pool_create(Instance *inst,
     }
     else if (gp_style->fill_style == GP_MATERIAL_FILL_STYLE_GRADIENT) {
       bool use_radial = (gp_style->gradient_type == GP_MATERIAL_GRADIENT_RADIAL);
-      /* TODO: This creates a new texture even if the gradient has not changed. */
-      pool->tex_fill[mat_id] = gpencil_gradient_texture_create(gp_style->gradient);
+      pool->tex_fill[mat_id] = nullptr;
       mat_data->flag |= GP_FILL_GRADIENT_USE;
       mat_data->flag |= use_radial ? GP_FILL_GRADIENT_RADIAL : GP_FLAG_NONE;
       gpencil_uv_transform_get(gp_style->texture_offset,
@@ -368,8 +338,12 @@ MaterialPool *gpencil_material_pool_create(Instance *inst,
                                gp_style->texture_angle,
                                reinterpret_cast<float (*)[2]>(&mat_data->fill_uv_rot_scale),
                                mat_data->fill_uv_offset);
-
-      mat_data->fill_texture_mix = 1.0f;
+      copy_v4_v4(mat_data->fill_color, gp_style->fill_rgba);
+      copy_v4_v4(mat_data->fill_mix_color, gp_style->mix_rgba);
+      mat_data->fill_texture_mix = 1.0f - gp_style->mix_factor;
+      if (gp_style->flag & GP_MATERIAL_FLIP_FILL) {
+        swap_v4_v4(mat_data->fill_color, mat_data->fill_mix_color);
+      }
     }
     else /* if (gp_style->fill_style == GP_MATERIAL_FILL_STYLE_SOLID) */ {
       pool->tex_fill[mat_id] = nullptr;

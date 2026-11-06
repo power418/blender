@@ -4,8 +4,5 @@
 }
 ; /* end of ONEAPIKernelContext class definition */
 
-#undef kernel_data
-#define kernel_data (*(kg->__data))
-
 #undef kernel_integrator_state
 #define kernel_integrator_state (*(kg->integrator_state))

@@ -19,7 +19,6 @@
 
 namespace blender {
 
-struct ColorManagedColorspaceSettings;
 struct IDProperty;
 struct ImBuf;
 struct MovieReader;
@@ -41,7 +40,7 @@ MovieReader *MOV_open_file(const char *filepath,
                            ImBufFlags ib_flags,
                            int streamindex,
                            bool keep_original_colorspace,
-                           ColorManagedColorspaceSettings *colorspace_settings);
+                           char colorspace[IM_MAX_SPACE]);
 
 /**
  * Release memory and other resources associated with movie playback.
@@ -68,7 +67,7 @@ void MOV_close(MovieReader *anim);
  * or failed decoding.
  */
 ImBuf *MOV_decode_frame(MovieReader *anim,
-                        int frame_index,
+                        int position,
                         IMB_Proxy_Size preview_size /* = 0 = IMB_PROXY_NONE */);
 
 /**

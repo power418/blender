@@ -53,6 +53,7 @@ class VKImageView : NonCopyable {
   VKImageView(VKTexture &texture, const VKImageViewInfo &info, StringRefNull name);
 
   VKImageView(VKImageView &&other);
+  ~VKImageView();
 
   VkImageView vk_handle() const
   {

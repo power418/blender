@@ -9,12 +9,15 @@
 #include "BLI_assert.hh"
 #include "DNA_object_types.h"
 #include "DNA_view3d_enums.h"
-#include "draw_common_c.hh"
 
 namespace blender::workbench {
 
-enum class eGeometryType { MESH = 0, CURVES, POINTCLOUD, GSPLAT };
-static constexpr int geometry_type_len = static_cast<int>(eGeometryType::GSPLAT) + 1;
+enum class eGeometryType {
+  MESH = 0,
+  CURVES,
+  POINTCLOUD,
+};
+static constexpr int geometry_type_len = static_cast<int>(eGeometryType::POINTCLOUD) + 1;
 
 static inline const char *get_name(eGeometryType type)
 {
@@ -25,8 +28,6 @@ static inline const char *get_name(eGeometryType type)
       return "Curves";
     case eGeometryType::POINTCLOUD:
       return "PointCloud";
-    case eGeometryType::GSPLAT:
-      return "GSplat";
     default:
       BLI_assert_unreachable();
       return "";
@@ -39,7 +40,7 @@ static inline eGeometryType geometry_type_from_object(Object *ob)
     case OB_CURVES:
       return eGeometryType::CURVES;
     case OB_POINTCLOUD:
-      return draw::pointcloud_is_gsplat(ob) ? eGeometryType::GSPLAT : eGeometryType::POINTCLOUD;
+      return eGeometryType::POINTCLOUD;
     default:
       return eGeometryType::MESH;
   }

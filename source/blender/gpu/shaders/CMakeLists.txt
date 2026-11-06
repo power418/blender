@@ -11,8 +11,8 @@ set(INC_GLSL
   ../../blenlib
 
   common
-  compat
   infos
+  compat
   nodes
 )
 

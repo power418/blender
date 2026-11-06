@@ -1380,7 +1380,7 @@ static void proxy_task_func(TaskPool *__restrict pool, void *task_data)
                                       ImBufFlags::ByteData | ImBufFlags::AlphaDetect,
                                       "proxy frame",
                                       nullptr,
-                                      &data->clip->colorspace_settings);
+                                      data->clip->colorspace_settings.name);
 
     BKE_movieclip_build_proxy_frame_for_ibuf(
         data->clip, ibuf, nullptr, cfra, data->build_sizes, data->build_count, false);

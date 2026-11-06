@@ -12,7 +12,6 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "BLI_assert.hh"
 #include "BLI_fileops.hh"
 #include "BLI_fnmatch.hh"
 #include "BLI_path_utils.hh"
@@ -669,177 +668,143 @@ void BLI_path_normalize_unc_16(wchar_t *path_16)
 }
 #endif
 
-/**
- * Shared logic of #BLI_path_rel and #BLI_path_relative_to.
- *
- * \param path: Absolute path to make relative.
- * \param basepath: Absolute file path, only the directory part is used.
- * \param walk_up: Allow `../` when #path is not inside the base directory.
- * \param blend_relative: Prefix the result with the `//`.
- * \return True when #path was made relative.
- */
-static bool path_relative_to_impl(char *path,
-                                  const size_t path_maxncpy,
-                                  const char *basepath,
-                                  const bool walk_up,
-                                  const bool blend_relative)
+void BLI_path_rel(char path[FILE_MAX], const char *basepath)
 {
-  BLI_string_debug_size_after_nil(path, path_maxncpy);
+  BLI_string_debug_size_after_nil(path, FILE_MAX);
   /* A `basepath` starting with `//` will be made relative multiple times. */
   BLI_assert_msg(!BLI_path_is_rel(basepath), "The 'basepath' cannot start with '//'!");
 
-  const char *base_dir_end;
-  char base_path[FILE_MAX];
+  const char *lslash;
+  char temp[FILE_MAX];
 
   /* If path is already relative, bail out. */
   if (BLI_path_is_rel(path)) {
-    return false;
+    return;
   }
 
   /* Also bail out if relative path is not set. */
   if (basepath[0] == '\0') {
-    return false;
+    return;
   }
 
-  STRNCPY(base_path, basepath);
-
 #ifdef WIN32
+  if (BLI_strnlen(basepath, 3) > 2 && !BLI_path_is_abs_win32(basepath)) {
+    char *ptemp;
+    /* Fix missing volume name in relative base,
+     * can happen with old `recent-files.txt` files. */
+    BLI_windows_get_default_root_dir(temp);
+    ptemp = &temp[2];
+    if (!ELEM(basepath[0], '\\', '/')) {
+      ptemp++;
+    }
+    BLI_strncpy(ptemp, basepath, FILE_MAX - 3);
+  }
+  else {
+    BLI_strncpy(temp, basepath, FILE_MAX);
+  }
+
   if (BLI_strnlen(path, 3) > 2) {
     bool is_unc = BLI_path_is_unc(path);
 
     /* Ensure paths are both UNC paths or are both drives. */
-    if (BLI_path_is_unc(base_path) != is_unc) {
-      return false;
+    if (BLI_path_is_unc(temp) != is_unc) {
+      return;
     }
 
-    /* Ensure both UNC paths are on the same share. Windows server and share names
-     * are case-insensitive, and either slash may be used. */
+    /* Ensure both UNC paths are on the same share. */
     if (is_unc) {
-      int num_slashes = 0;
-      for (int offset = 0; base_path[offset] && num_slashes < 4; offset++) {
-        const char base_ch = base_path[offset];
-        const char path_ch = path[offset];
-
-        if (ELEM(base_ch, '\\', '/')) {
-          num_slashes++;
-          /* The path is the share itself. */
-          if (path_ch == '\0' && num_slashes == 4) {
-            break;
-          }
-          if (!ELEM(path_ch, '\\', '/')) {
-            return false;
-          }
+      int off;
+      int slash = 0;
+      for (off = 0; temp[off] && slash < 4; off++) {
+        if (temp[off] != path[off]) {
+          return;
         }
-        else if (tolower(base_ch) != tolower(path_ch)) {
-          return false;
+
+        if (temp[off] == '\\') {
+          slash++;
         }
       }
     }
-    else if ((base_path[1] == ':' && path[1] == ':') &&
-             (tolower(base_path[0]) != tolower(path[0])))
-    {
-      return false;
+    else if ((temp[1] == ':' && path[1] == ':') && (tolower(temp[0]) != tolower(path[0]))) {
+      return;
     }
   }
+#else
+  STRNCPY(temp, basepath);
 #endif
 
-  /* #BLI_path_normalize requires native slashes. */
-  BLI_string_replace_char(base_path + BLI_path_unc_prefix_len(base_path), ALTSEP, SEP);
-  BLI_string_replace_char(path + BLI_path_unc_prefix_len(path), ALTSEP, SEP);
+  BLI_string_replace_char(temp + BLI_path_unc_prefix_len(temp), '\\', '/');
+  BLI_string_replace_char(path + BLI_path_unc_prefix_len(path), '\\', '/');
 
-  /* Removes `/./` and `/../` which confuse the following slash counting. */
+  /* Remove `/./` which confuse the following slash counting. */
   BLI_path_normalize(path);
-  BLI_path_normalize(base_path);
-
-  /* Use forward slashes as assumed by the comparison below. */
-  BLI_path_slash_forward_from_native(base_path);
-  BLI_path_slash_forward_from_native(path);
+  BLI_path_normalize(temp);
 
   /* The last slash in the path indicates where the path part ends. */
-  base_dir_end = BLI_path_slash_rfind(base_path);
+  lslash = BLI_path_slash_rfind(temp);
 
-  if (base_dir_end) {
-    /* Only use the directory part of the base path, including the trailing slash. */
-    base_path[base_dir_end - base_path + 1] = '\0';
-
+  if (lslash) {
     /* Find the prefix of the filename that is equal for both filenames.
-     * Only entire components between slashes match. */
-    int base_offset = 0;
-    int path_offset = 0;
-    int i = 0;
+     * This is replaced by the two slashes at the beginning. */
+    const char *p = temp;
+    const char *q = path;
+
 #ifdef WIN32
-    while ((base_path[i] != '\0') && tolower(base_path[i]) == tolower(path[i])) {
+    while (tolower(*p) == tolower(*q))
 #else
-    while ((base_path[i] != '\0') && base_path[i] == path[i]) {
+    while (*p == *q)
 #endif
-      i++;
-      if (base_path[i - 1] == '/') {
-        base_offset = path_offset = i;
+    {
+      p++;
+      q++;
+
+      /* Don't search beyond the end of the string in the rare case they match. */
+      if ((*p == '\0') || (*q == '\0')) {
+        break;
       }
     }
 
-    if ((path[i] == '\0') && (base_path[i] == '/')) {
-      /* The path is the base directory itself, or one of its parents. */
-      base_offset = i + 1;
-      path_offset = i;
+    /* We might have passed the slash when the beginning of a dir matches
+     * so we rewind. Only check on the actual filename. */
+    if (*q != '/') {
+      while ((q >= path) && (*q != '/')) {
+        q--;
+        p--;
+      }
     }
-
-    if (base_offset == 0) {
-      /* No common root. */
-      return false;
-    }
-
-    char result[FILE_MAX] = "//";
-    char *result_iter = result + (blend_relative ? 2 : 0);
-
-    /* Walk up one directory for every component left in the base directory. */
-    for (const char *base_iter = base_path + base_offset; *base_iter; base_iter++) {
-      if (*base_iter == '/') {
-        if (!walk_up) {
-          return false;
-        }
-        result_iter += BLI_strncpy_rlen(
-            result_iter, "../", sizeof(result) - (result_iter - result));
+    else if (*p != '/') {
+      while ((p >= temp) && (*p != '/')) {
+        p--;
+        q--;
       }
     }
 
-    result_iter += BLI_strncpy_rlen(
-        result_iter, path + path_offset, sizeof(result) - (result_iter - result));
-    UNUSED_VARS(result_iter);
+    char res[FILE_MAX] = "//";
+    char *r = res + 2;
 
-#ifdef WIN32
-    BLI_string_replace_char(result + (blend_relative ? 2 : 0), '/', '\\');
-#endif
-    BLI_strncpy(path, result, path_maxncpy);
-    return true;
-  }
-
-  return false;
-}
-
-void BLI_path_rel(char path[FILE_MAX], const char *basepath)
-{
-  const bool walk_up = true;
-  const bool blend_relative = true;
-
-#ifdef WIN32
-  if (BLI_strnlen(basepath, 3) > 2 && !BLI_path_is_abs_win32(basepath)) {
-    /* Fix missing volume name in relative base,
-     * can happen with old `recent-files.txt` files. */
-    char base_path[FILE_MAX];
-    BLI_windows_get_default_root_dir(base_path);
-    char *base_path_after_root = &base_path[2];
-    if (!ELEM(basepath[0], '\\', '/')) {
-      base_path_after_root++;
+    /* `p` now points to the slash that is at the beginning of the part
+     * where the path is different from the relative path.
+     * We count the number of directories we need to go up in the
+     * hierarchy to arrive at the common prefix of the path. */
+    if (p < temp) {
+      p = temp;
     }
-    BLI_strncpy(
-        base_path_after_root, basepath, sizeof(base_path) - (base_path_after_root - base_path));
-    path_relative_to_impl(path, FILE_MAX, base_path, walk_up, blend_relative);
-    return;
-  }
-#endif
+    while (p && p < lslash) {
+      if (*p == '/') {
+        r += BLI_strncpy_rlen(r, "../", sizeof(res) - (r - res));
+      }
+      p++;
+    }
 
-  path_relative_to_impl(path, FILE_MAX, basepath, walk_up, blend_relative);
+    /* Don't copy the slash at the beginning. */
+    r += BLI_strncpy_rlen(r, q + 1, sizeof(res) - (r - res));
+    UNUSED_VARS(r);
+
+#ifdef WIN32
+    BLI_string_replace_char(res + 2, '/', '\\');
+#endif
+    BLI_strncpy(path, res, FILE_MAX);
+  }
 }
 
 bool BLI_path_suffix(char *path, size_t path_maxncpy, const char *suffix, const char *sep)
@@ -1930,47 +1895,35 @@ bool BLI_path_name_at_index(const char *__restrict path,
 
 bool BLI_path_contains(const char *container_path, const char *containee_path)
 {
-  if (container_path[0] == '\0') {
-    return false;
+  char container_native[PATH_MAX];
+  char containee_native[PATH_MAX];
+
+  /* Keep space for a trailing slash. If the path is truncated by this, the containee path is
+   * longer than #PATH_MAX and the result is ill-defined. */
+  BLI_strncpy(container_native, container_path, PATH_MAX - 1);
+  STRNCPY(containee_native, containee_path);
+
+  BLI_path_slash_native(container_native);
+  BLI_path_slash_native(containee_native);
+
+  BLI_path_normalize(container_native);
+  BLI_path_normalize(containee_native);
+
+#ifdef WIN32
+  BLI_str_tolower_ascii(container_native, PATH_MAX);
+  BLI_str_tolower_ascii(containee_native, PATH_MAX);
+#endif
+
+  if (STREQ(container_native, containee_native)) {
+    /* The paths are equal, they contain each other. */
+    return true;
   }
 
-  const bool walk_up = false;
-  return BLI_path_relative_to(containee_path, container_path, walk_up, nullptr, 0);
-}
+  /* Add a trailing slash to prevent same-prefix directories from matching.
+   * e.g. `/some/path` doesn't contain `/some/path_lib`. */
+  BLI_path_slash_ensure(container_native, sizeof(container_native));
 
-bool BLI_path_relative_to(const char *path,
-                          const char *base_dir,
-                          const bool walk_up,
-                          char *r_path_relative,
-                          const size_t r_path_relative_maxncpy)
-{
-  if (r_path_relative) {
-    r_path_relative[0] = '\0';
-  }
-
-  if (base_dir[0] == '\0') {
-    BLI_assert_msg(0, "BLI_path_relative_to should not be called with an empty base directory");
-    return false;
-  }
-
-  /* Add a trailing slash, otherwise path_relative_to_impl assumes it's a file. */
-  char base_dir_slash[FILE_MAX];
-  STRNCPY(base_dir_slash, base_dir);
-  BLI_path_slash_ensure(base_dir_slash, sizeof(base_dir_slash));
-
-  char path_rel[FILE_MAX];
-  STRNCPY(path_rel, path);
-
-  const bool blend_relative = false;
-  if (!path_relative_to_impl(path_rel, sizeof(path_rel), base_dir_slash, walk_up, blend_relative))
-  {
-    return false;
-  }
-
-  if (r_path_relative) {
-    BLI_strncpy(r_path_relative, path_rel, r_path_relative_maxncpy);
-  }
-  return true;
+  return BLI_str_startswith(containee_native, container_native);
 }
 
 const char *BLI_path_slash_find(const char *path)
@@ -2055,13 +2008,6 @@ void BLI_path_slash_native(char *path)
 #else
   BLI_string_replace_char(path + BLI_path_unc_prefix_len(path), ALTSEP, SEP);
 #endif
-}
-
-void BLI_path_slash_forward_from_native(char *path)
-{
-  if (SEP != '/') {
-    BLI_string_replace_char(path, SEP, '/');
-  }
 }
 
 int BLI_path_cmp_normalized(const char *p1, const char *p2)

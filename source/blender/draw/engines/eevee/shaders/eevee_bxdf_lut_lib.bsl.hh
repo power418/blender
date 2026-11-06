@@ -13,6 +13,7 @@
 #include "eevee_utility_tx.bsl.hh"
 #include "gpu_shader_compat.hh"
 #include "gpu_shader_math_base.bsl.hh"
+#include "gpu_shader_utildefines.bsl.hh"
 
 namespace eevee::lut {
 
@@ -43,7 +44,7 @@ struct GGXBrdfData {
     return float2(roughness, sqrt(saturate(1.0f - cos_theta)));
   }
 
-  static GGXBrdfData sample_utility_tx(const UtilityTexture &util_tx,
+  static GGXBrdfData sample_utility_tx([[resource_table]] const UtilityTexture &util_tx,
                                        float cos_theta,
                                        float roughness)
   {
@@ -91,7 +92,7 @@ struct GGXBsdfData {
     return saturate(coords);
   }
 
-  static GGXBsdfData sample_utility_tx(const UtilityTexture &util_tx,
+  static GGXBsdfData sample_utility_tx([[resource_table]] const UtilityTexture &util_tx,
                                        float cos_theta,
                                        float roughness,
                                        float ior)
@@ -118,7 +119,7 @@ struct GGXBtdfGt1Data {
 
   static GGXBtdfGt1Data unpack(float4 data)
   {
-    return {.transmission_factor = data.x};
+    return {.transmission_factor = data.w};
   }
 
   static float3 lut_coords_get(float cos_theta, float roughness, float f0)
@@ -126,15 +127,14 @@ struct GGXBtdfGt1Data {
     return float3(sqrt(f0), sqrt(1.0f - cos_theta), roughness);
   }
 
-  static GGXBtdfGt1Data sample_utility_tx(const UtilityTexture &util_tx,
+  static GGXBtdfGt1Data sample_utility_tx([[resource_table]] const UtilityTexture &util_tx,
                                           float cos_theta,
                                           float roughness,
                                           float f0)
   {
     const float3 coords = lut_coords_get(cos_theta, roughness, f0);
     const float4 data = util_tx.sample_bsdf_lut(coords.xy, coords.z);
-    /* Shuffle to expect the same layout as the output of `pack`. */
-    return unpack(data.wxyz);
+    return unpack(data);
   }
 };
 

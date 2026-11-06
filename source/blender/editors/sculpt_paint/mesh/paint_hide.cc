@@ -354,11 +354,9 @@ static void grid_hide_update(Depsgraph &depsgraph,
           calc_hide(grids[i], new_hide[i]);
         }
 
-        if (std::all_of(grids.index_range().begin(),
-                        grids.index_range().end(),
-                        [&](const int i) {
-                          return bits::spans_equal(grid_hidden[grids[i]], new_hide[i]);
-                        }))
+        if (std::all_of(grids.index_range().begin(), grids.index_range().end(), [&](const int i) {
+              return bits::spans_equal(grid_hidden[grids[i]], new_hide[i]);
+            }))
         {
           return;
         }
@@ -411,7 +409,7 @@ static void partialvis_update_bmesh_verts(const Set<BMVert *, 0> &verts,
 static void partialvis_update_bmesh_faces(const Set<BMFace *, 0> &faces)
 {
   for (BMFace *f : faces) {
-    if (BKE_paint_is_bmesh_face_hidden(f)) {
+    if (paint_is_bmesh_face_hidden(f)) {
       BM_elem_flag_enable(f, BM_ELEM_HIDDEN);
     }
     else {

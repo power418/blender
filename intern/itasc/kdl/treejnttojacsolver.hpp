@@ -35,4 +35,4 @@ private:
 
 }//End of namespace
 
-#endif /* TREEJNTTOJACSOLVER_HPP_ */
+#endif /* TREEJNTTOJACSOLVER_H_ */

@@ -56,20 +56,20 @@ optional<vector<MatchRank>> SymbolFunction::get_match_ranks(
 
   vector<MatchRank> ranks;
   for (size_t i = 0; i < param_types.size(); ++i) {
-    MatchRank rank = table.get_conversion_rank(
-        param_types[i], arg_types[i], allow_vector_promotion);
+    MatchRank rank = table.get_conversion_rank(param_types[i], arg_types[i], is_builtin);
     if (rank == MatchRank::None) {
       return {}; /* Not a viable candidate. */
     }
     ranks.push_back(rank);
   }
 
-  /* Check if remaining parameters are optional. Defaulted parameters are not ranked, so that
-   * every viable candidate returns one rank per supplied argument and stays comparable. */
+  /* Check if remaining parameters are optional. */
   for (size_t i = param_types.size(); i < arg_types.size(); ++i) {
     if (!arg_defaults[i].is_valid()) {
       return {}; /* Missing required argument. */
     }
+    /* Default arguments are generally treated as an exact match for scoring purposes. */
+    ranks.push_back(MatchRank::Exact);
   }
 
   return ranks;
@@ -125,30 +125,8 @@ Result<SymbolFunction *> SymbolFunction::lookup_overload(IdQualified id,
         best_ranks = std::move(current_ranks);
         is_ambiguous = false;
       }
-      else if (best_is_better) {
-        /* best_fn remains the best. Do nothing. */
-      }
-      else {
-        /* Tie-Breaker: Neither is strictly better based on argument match ranks. */
-
-        /* C++ Rule: Prefer non-template functions over template functions. */
-        bool current_is_template = fn->is_specialization;
-        bool best_is_template = best_fn->is_specialization;
-
-        if (!current_is_template && best_is_template) {
-          /* Current is non-template, best is template. Current wins the tie. */
-          best_fn = fn;
-          best_ranks = std::move(current_ranks);
-          is_ambiguous = false;
-        }
-        else if (current_is_template && !best_is_template) {
-          /* Best is non-template, current is template. Best maintains its win. */
-          is_ambiguous = false;
-        }
-        else {
-          /* Both are templates, or both are non-templates. It is truly ambiguous. */
-          is_ambiguous = true;
-        }
+      else if (!best_is_better) {
+        is_ambiguous = true;
       }
     }
   }
@@ -166,7 +144,7 @@ Result<SymbolFunction *> SymbolFunction::lookup_overload(IdQualified id,
   }
 
   Diag error_type = is_ambiguous ? Diag::OverloadAmbiguous : Diag::OverloadNotFound;
-  return {table.root->lookup_function(SymbolTable::err_symbol),
+  return {root_scope()->lookup_function(SymbolTable::err_symbol),
           AstNodeException(id, error_type, original, to_str(arg_types), candidates)};
 }
 
@@ -178,14 +156,12 @@ void SymbolFunction::add_overload(SymbolFunction *fn)
 
 void SymbolFunction::reserve_arguments(int n)
 {
-  this->arg_const.reserve(n);
   this->arg_types.reserve(n);
   this->arg_defaults.reserve(n);
 }
 
-void SymbolFunction::add_argument(bool is_const, SymbolClass *type, Expr default_value)
+void SymbolFunction::add_argument(SymbolClass *type, Expr default_value)
 {
-  this->arg_const.emplace_back(is_const);
   this->arg_types.emplace_back(type);
   this->arg_defaults.emplace_back(default_value);
 }

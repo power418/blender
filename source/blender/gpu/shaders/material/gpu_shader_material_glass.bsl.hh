@@ -6,6 +6,7 @@
 
 #include "gpu_shader_material_interface.bsl.hh"
 #include "gpu_shader_math_vector_safe.bsl.hh"
+#include "gpu_shader_utildefines.bsl.hh"
 
 [[node]]
 void node_bsdf_glass(float4 color,
@@ -19,8 +20,6 @@ void node_bsdf_glass(float4 color,
                      float /*thin_film_thickness*/,
                      float /*thin_film_ior*/,
                      const float do_multiscatter,
-                     KernelGlobals &kg,
-                     ShadingData &sd,
                      Closure &result)
 {
   color = max(color, float4(0.0f));
@@ -28,10 +27,10 @@ void node_bsdf_glass(float4 color,
   ior = max(ior, 1e-5f);
   N = safe_normalize(N);
 
-  float3 V = coordinate_impl(kg, sd, sd.P, sd.N).incoming;
+  float3 V = coordinate_incoming(g_data.P);
   float NV = dot(N, V);
 
-  float2 bsdf = bsdf_lut(kg, NV, roughness, ior, do_multiscatter != 0.0f);
+  float2 bsdf = bsdf_lut(NV, roughness, ior, do_multiscatter != 0.0f);
 
   ClosureReflection reflection_data;
   reflection_data.color = color.rgb * (bsdf.x * weight);
@@ -44,5 +43,5 @@ void node_bsdf_glass(float4 color,
   refraction_data.roughness = roughness;
   refraction_data.ior = ior;
 
-  result = closure_eval(kg, sd, reflection_data, refraction_data);
+  result = closure_eval(reflection_data, refraction_data);
 }

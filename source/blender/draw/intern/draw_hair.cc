@@ -52,12 +52,12 @@ gpu::VertBuf *hair_pos_buffer_get(Scene *scene,
 }
 
 template<typename PassT>
-Batch *hair_sub_pass_setup_implementation(PassT &sub_ps,
-                                          const Scene *scene,
-                                          const ObjectRef &ob_ref,
-                                          ParticleSystem *psys,
-                                          ModifierData *md,
-                                          GPUMaterial *gpu_material)
+gpu::Batch *hair_sub_pass_setup_implementation(PassT &sub_ps,
+                                               const Scene *scene,
+                                               const ObjectRef &ob_ref,
+                                               ParticleSystem *psys,
+                                               ModifierData *md,
+                                               GPUMaterial *gpu_material)
 {
   /** NOTE: This still relies on the old DRW_hair implementation. */
   Object *object = ob_ref.object;
@@ -100,22 +100,22 @@ Batch *hair_sub_pass_setup_implementation(PassT &sub_ps,
       source.evaluated_points_num(), source.curves_num(), face_per_segment, false, unused_error);
 }
 
-Batch *hair_sub_pass_setup(PassMain::Sub &sub_ps,
-                           const Scene *scene,
-                           const ObjectRef &ob_ref,
-                           ParticleSystem *psys,
-                           ModifierData *md,
-                           GPUMaterial *gpu_material)
+gpu::Batch *hair_sub_pass_setup(PassMain::Sub &sub_ps,
+                                const Scene *scene,
+                                const ObjectRef &ob_ref,
+                                ParticleSystem *psys,
+                                ModifierData *md,
+                                GPUMaterial *gpu_material)
 {
   return hair_sub_pass_setup_implementation(sub_ps, scene, ob_ref, psys, md, gpu_material);
 }
 
-Batch *hair_sub_pass_setup(PassSimple::Sub &sub_ps,
-                           const Scene *scene,
-                           const ObjectRef &ob_ref,
-                           ParticleSystem *psys,
-                           ModifierData *md,
-                           GPUMaterial *gpu_material)
+gpu::Batch *hair_sub_pass_setup(PassSimple::Sub &sub_ps,
+                                const Scene *scene,
+                                const ObjectRef &ob_ref,
+                                ParticleSystem *psys,
+                                ModifierData *md,
+                                GPUMaterial *gpu_material)
 {
   return hair_sub_pass_setup_implementation(sub_ps, scene, ob_ref, psys, md, gpu_material);
 }

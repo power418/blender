@@ -27,7 +27,6 @@ static void node_declare(NodeDeclarationBuilder &b)
         &params.node_ptr,
         "string",
         RNA_pointer_get(&params.node_ptr, "textbox_state").data_as<TextboxState>(),
-        "",
         IFACE_("String"));
   });
 }

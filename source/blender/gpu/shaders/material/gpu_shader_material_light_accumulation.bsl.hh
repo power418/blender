@@ -5,6 +5,7 @@
 #pragma once
 
 #include "gpu_shader_material_interface.bsl.hh"
+#include "gpu_shader_utildefines.bsl.hh"
 
 [[node]]
 void node_light_accumulation(const float light_index,
@@ -15,8 +16,6 @@ void node_light_accumulation(const float light_index,
                              float4 transmission_light,
                              float4 transmission_color,
                              float weight,
-                             KernelGlobals &kg,
-                             ShadingData &sd,
                              Closure &result)
 {
   diffuse_light = max(diffuse_light, float4(0.0f));
@@ -26,9 +25,7 @@ void node_light_accumulation(const float light_index,
   transmission_light = max(transmission_light, float4(0.0f));
   transmission_color = saturate(transmission_color);
 
-  node_light_accumulation_impl(kg,
-                               sd,
-                               int(light_index),
+  node_light_accumulation_impl(int(light_index),
                                diffuse_light.rgb,
                                diffuse_color.rgb,
                                glossy_light.rgb,

@@ -283,7 +283,7 @@ bool EstimateHomography2DFromCorrespondences(
     x2_normalized = x2;
   }
 
-  // Assume algebraic estimation always succeeds,
+  // Assume algebraic estiation always suceeds,
   Homography2DFromCorrespondencesLinear(x1_normalized, x2_normalized, H);
 
   // Denormalize the homography matrix.

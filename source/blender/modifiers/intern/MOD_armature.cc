@@ -21,7 +21,6 @@
 #include "BKE_action.hh"
 #include "BKE_armature.hh"
 #include "BKE_deform.hh"
-#include "BKE_editmesh.hh"
 #include "BKE_lib_query.hh"
 #include "BKE_mesh.hh"
 #include "BKE_modifier.hh"
@@ -142,6 +141,7 @@ static void deform_verts(ModifierData *md,
 
 static void deform_verts_EM(ModifierData *md,
                             const ModifierEvalContext *ctx,
+                            const BMEditMesh *em,
                             Mesh *mesh,
                             MutableSpan<float3> positions)
 {
@@ -166,7 +166,7 @@ static void deform_verts_EM(ModifierData *md,
                                            std::nullopt,
                                            amd->deformflag,
                                            amd->defgrp_name,
-                                           *BKE_editmesh_bmesh_get(mesh));
+                                           *em);
 
   /* free cache */
   MEM_SAFE_DELETE(amd->vert_coords_prev);
@@ -174,7 +174,8 @@ static void deform_verts_EM(ModifierData *md,
 
 static void deform_matrices_EM(ModifierData *md,
                                const ModifierEvalContext *ctx,
-                               Mesh *mesh,
+                               const BMEditMesh *em,
+                               Mesh * /*mesh*/,
                                MutableSpan<float3> positions,
                                MutableSpan<float3x3> matrices)
 {
@@ -186,7 +187,7 @@ static void deform_matrices_EM(ModifierData *md,
                                            matrices,
                                            amd->deformflag,
                                            amd->defgrp_name,
-                                           *BKE_editmesh_bmesh_get(mesh));
+                                           *em);
 }
 
 static void deform_matrices(ModifierData *md,

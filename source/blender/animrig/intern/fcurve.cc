@@ -517,10 +517,6 @@ static void remove_fcurve_key_range(FCurve *fcu,
                                     const int2 range,
                                     const BakeCurveRemove removal_mode)
 {
-  if (fcu->totvert == 0) {
-    return;
-  }
-
   switch (removal_mode) {
 
     case BakeCurveRemove::ALL: {

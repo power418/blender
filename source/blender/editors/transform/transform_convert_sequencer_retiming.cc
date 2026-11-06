@@ -96,7 +96,7 @@ static void freeSeqData(TransInfo *t, TransDataContainer *tc, TransCustomData *c
     const bool use_sync_markers = ((t->area->spacedata.first_as<SpaceSeq>())->flag &
                                    SEQ_MARKER_TRANS) != 0;
     seq::transform_handle_overlap(
-        scene, seqbasep, transformed_strips, use_sync_markers, dependant);
+        scene, seqbasep, transformed_strips, dependant, use_sync_markers);
   }
 
   if ((custom_data->data != nullptr) && custom_data->use_free) {
@@ -116,9 +116,6 @@ static void create_trans_seq_clamp_data(TransInfo *t,
 
   /* Prevent snaps and change in `values` past `offset_clamp` for all transformed retiming keys. */
   BLI_rcti_init(&ts->offset_clamp, INT_MIN, INT_MAX, 0, 0);
-
-  /* Disable axis constraints, retiming keys can only be moved horizontally. */
-  t->flag |= T_NO_CONSTRAINT;
 
   for (auto item : selection.items()) {
     SeqRetimingKey *key = item.key;

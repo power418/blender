@@ -24,7 +24,7 @@
 namespace KDL {
 
 // Trace of the call stack of the I/O routines to help user
-// interpret error messages from I/O
+// interprete error messages from I/O
 typedef std::stack<std::string>  ErrorStack;
 
 ErrorStack errorstack;

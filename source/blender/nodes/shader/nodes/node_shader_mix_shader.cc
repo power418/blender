@@ -49,8 +49,7 @@ NODE_SHADER_MATERIALX_BEGIN
     return empty();
   }
 
-  /* Cycles and EEVEE clamp the factor, match that here. */
-  NodeItem fac = get_input_value(0, NodeItem::Type::Float).clamp();
+  NodeItem fac = get_input_value(0, NodeItem::Type::Float);
 
   if (shader1 && !shader2) {
     return shader1 * (val(1.0f) - fac);

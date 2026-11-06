@@ -112,13 +112,13 @@ void tracking_marker_insert_disabled(MovieTrackingTrack *track,
 /**
  * Fill in Libmv C-API camera intrinsics options from tracking structure.
  */
-void tracking_cameraIntrinsicsOptionsFromTracking(
+void tracking_cameraIntrinscisOptionsFromTracking(
     MovieTracking *tracking,
     int calibration_width,
     int calibration_height,
     libmv_CameraIntrinsicsOptions *camera_intrinsics_options);
 
-void tracking_trackingCameraFromIntrinsicsOptions(
+void tracking_trackingCameraFromIntrinscisOptions(
     MovieTracking *tracking, const libmv_CameraIntrinsicsOptions *camera_intrinsics_options);
 
 /**

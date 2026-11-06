@@ -11,7 +11,6 @@
 
 #include "kernel/geom/attribute.h"
 #include "kernel/geom/curve.h"
-#include "kernel/geom/gsplat.h"
 #include "kernel/geom/motion_triangle.h"
 #include "kernel/geom/object.h"
 #include "kernel/geom/point.h"
@@ -575,7 +574,7 @@ ccl_device bool attribute_bump_map_normal(KernelGlobals kg,
         kg, Ng, sd->object, sd->object_flag, sd->prim, sd->u, sd->v, sd->du, sd->dv, f.dx, f.dy);
   }
   else {
-    kernel_assert(sd->type & PRIMITIVE_MOTION_TRIANGLE);
+    assert(sd->type & PRIMITIVE_MOTION_TRIANGLE);
     f.val = motion_triangle_smooth_normal(
         kg, Ng, sd->object, sd->prim, sd->time, sd->u, sd->v, sd->du, sd->dv, f.dx, f.dy);
   }
@@ -614,45 +613,6 @@ ccl_device_forceinline void rgba_to_nchannels(const float4 rgba,
   }
   if (nchannels > 3) {
     result[3] = rgba.w;
-  }
-}
-
-ccl_device_forceinline float4 get_missingcolor(const float *missingcolor, const int nchannels)
-{
-  if (!missingcolor) {
-    return IMAGE_MISSING_RGBA;
-  }
-  float4 result = zero_float4();
-  if (nchannels > 0) {
-    result.x = missingcolor[0];
-  }
-  if (nchannels > 1) {
-    result.y = missingcolor[1];
-  }
-  if (nchannels > 2) {
-    result.z = missingcolor[2];
-  }
-  if (nchannels > 3) {
-    result.w = missingcolor[3];
-  }
-  return result;
-}
-
-ccl_device_forceinline void missingcolor_to_nchannels(const float *missingcolor,
-                                                      const int nchannels,
-                                                      ccl_private float *result)
-{
-  if (nchannels > 0) {
-    result[0] = missingcolor[0];
-  }
-  if (nchannels > 1) {
-    result[1] = missingcolor[1];
-  }
-  if (nchannels > 2) {
-    result[2] = missingcolor[2];
-  }
-  if (nchannels > 3) {
-    result[3] = missingcolor[3];
   }
 }
 
@@ -771,7 +731,7 @@ ccl_device bool osl_shared_get_texture_info(KernelGlobals kg,
 ccl_device bool osl_shared_texture(KernelGlobals kg,
                                    ccl_private ShaderGlobals *sg,
                                    ccl_private void *texture_handle,
-                                   ccl_private OSLTextureOptions *opt,
+                                   ccl_private void *opt_void,
                                    float s,
                                    float t,
                                    float dsdx,
@@ -790,8 +750,7 @@ ccl_device bool osl_shared_texture(KernelGlobals kg,
   switch (type) {
     case OSLTextureHandleType::IMAGE: {
       const dual2 uv({s, t}, {dsdx, dtdx}, {dsdy, dtdy});
-      const float4 rgba = kernel_image_interp_with_udim(
-          kg, sd, image_texture_or_udim_id, uv, get_missingcolor(opt->missingcolor, nchannels));
+      const float4 rgba = kernel_image_interp_with_udim(kg, sd, image_texture_or_udim_id, uv);
 
       rgba_to_nchannels(rgba, nchannels, result);
 
@@ -832,6 +791,7 @@ ccl_device bool osl_shared_texture(KernelGlobals kg,
 #if !defined(__KERNEL_GPU__) && defined(__SHADER_RAYTRACE__)
       /* AO shader hack. */
       ConstIntegratorState state = sg->path_state;
+      const OSL::TextureOpt *options = static_cast<const OSL::TextureOpt *>(opt_void);
       if (state != nullptr) {
         const int num_samples = int(s);
         const float radius = t;
@@ -840,10 +800,10 @@ ccl_device bool osl_shared_texture(KernelGlobals kg,
         if (int(dtdy)) {
           flags |= NODE_AO_INSIDE;
         }
-        if (opt->sblur) {
+        if (int(options->sblur)) {
           flags |= NODE_AO_ONLY_LOCAL;
         }
-        if (opt->tblur) {
+        if (int(options->tblur)) {
           flags |= NODE_AO_GLOBAL_RADIUS;
         }
         result[0] = svm_ao(kg, state, sd, N, radius, num_samples, flags);
@@ -858,12 +818,7 @@ ccl_device bool osl_shared_texture(KernelGlobals kg,
   }
 
   if (!status) {
-    if (opt->missingcolor) {
-      missingcolor_to_nchannels(opt->missingcolor, nchannels, result);
-    }
-    else {
-      rgba_to_nchannels(IMAGE_MISSING_RGBA, nchannels, result);
-    }
+    rgba_to_nchannels(IMAGE_MISSING_RGBA, nchannels, result);
   }
 
   return status;
@@ -907,7 +862,6 @@ ccl_device bool osl_shared_texture3d(KernelGlobals kg,
 ccl_device bool osl_shared_environment(KernelGlobals kg,
                                        ccl_private ShaderGlobals *sg,
                                        ccl_private void *texture_handle,
-                                       ccl_private OSLTextureOptions *opt,
                                        float3 R,
                                        float3 dRdx,
                                        float3 dRdy,
@@ -922,18 +876,12 @@ ccl_device bool osl_shared_environment(KernelGlobals kg,
     const dual3 R_dual(R, dRdx, dRdy);
     /* Environment call is always equirectangular. */
     const dual2 uv(direction_to_equirectangular(R_dual.val));
-    const float4 rgba = kernel_image_interp_with_udim(
-        kg, sd, image_texture_or_udim_id, uv, get_missingcolor(opt->missingcolor, nchannels));
+    const float4 rgba = kernel_image_interp_with_udim(kg, sd, image_texture_or_udim_id, uv);
     rgba_to_nchannels(rgba, nchannels, result);
     return true;
   }
 
-  if (opt->missingcolor) {
-    missingcolor_to_nchannels(opt->missingcolor, nchannels, result);
-  }
-  else {
-    rgba_to_nchannels(IMAGE_MISSING_RGBA, nchannels, result);
-  }
+  rgba_to_nchannels(IMAGE_MISSING_RGBA, nchannels, result);
 
   return false;
 }
@@ -1265,7 +1213,7 @@ ccl_device_inline bool osl_shared_get_object_standard_attribute(KernelGlobals kg
 #ifdef __POINTCLOUD__
   /* Point Attributes */
   if (name == DeviceStrings::u_is_point) {
-    const float f = (sd->type & PRIMITIVE_ANY_POINT) != 0;
+    const float f = (sd->type & PRIMITIVE_POINT) != 0;
     return set_attribute(f, type, derivatives, val);
   }
   if (name == DeviceStrings::u_point_radius) {
@@ -1300,13 +1248,6 @@ ccl_device_inline bool osl_shared_get_object_standard_attribute(KernelGlobals kg
     }
     return set_attribute(f, type, derivatives, val);
   }
-#if defined(__GSPLATS__)
-  /* Gaussian splats attributes. */
-  if (sd->type & PRIMITIVE_GSPLAT && name == DeviceStrings::u_geom_radiance) {
-    const float3 radiance = gsplat_radiance(kg, *sd);
-    return set_attribute(radiance, type, derivatives, val);
-  }
-#endif
   return osl_shared_get_background_attribute(kg, sg, sd, name, type, derivatives, val);
 }
 

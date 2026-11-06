@@ -2,22 +2,44 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later */
 
-/* Based on Frostbite Unified Volumetric.
+/* Based on Frosbite Unified Volumetric.
  * https://www.ea.com/frostbite/news/physically-based-unified-volumetric-rendering-in-frostbite */
 
 /* Store volumetric properties into the froxel textures. */
 
 #pragma once
 
+#include "infos/eevee_geom_infos.hh"
+#include "infos/eevee_nodetree_infos.hh"
+
+#ifdef GLSL_CPP_STUBS
+#  define MAT_VOLUME
+#endif
+
 #include "eevee_volume_lib.bsl.hh"
 
 /* Needed includes for shader nodes. */
-#include "draw_volume.bsl.hh"
-#include "eevee_attributes_volume_lib.bsl.hh" /* IWYU pragma: export */
-#include "eevee_nodetree_frag_lib.bsl.hh"
+#include "eevee_attributes_volume_lib.glsl"
+#include "eevee_nodetree_frag_lib.glsl"
 #include "eevee_occupancy_lib.bsl.hh"
 #include "eevee_sampling_lib.bsl.hh"
-#include "eevee_surf_common.bsl.hh"
+
+GlobalData init_globals(const ViewMatrices view, float3 wP)
+{
+  GlobalData surf;
+  surf.P = wP;
+  surf.N = float3(0.0f);
+  surf.Ng = float3(0.0f);
+  surf.is_strand = false;
+  surf.hair_diameter = 0.0f;
+  surf.hair_strand_id = 0;
+  surf.barycentric_coords = float2(0.0f);
+  surf.barycentric_dists = float3(0.0f);
+  surf.ray_type = RAY_TYPE_CAMERA;
+  surf.ray_depth = 0.0f;
+  surf.ray_length = distance(surf.P, view.position());
+  return surf;
+}
 
 namespace eevee {
 
@@ -30,9 +52,11 @@ struct VolumeProperties {
 
 struct SurfVolume {
   [[compilation_constant]] bool is_homogenous;
+  [[compilation_constant]] bool is_volume_object;
   [[compilation_constant]] bool is_world;
 
-  [[resource_table]] draw::Volume volume;
+  [[legacy_info]] ShaderCreateInfo draw_modelmat_common;
+  [[legacy_info]] ShaderCreateInfo eevee_geom_iface_info;
 
   [[image(VOLUME_OCCUPANCY_SLOT, read, UINT_32)]] uimage3DAtomic occupancy_img;
 
@@ -72,9 +96,7 @@ struct SurfVolume {
     imageStoreFast(out_phase_weight_img, froxel, phase.yyyy);
   }
 
-  VolumeProperties eval_froxel(KernelGlobals &kg,
-                               ShadingData sd,
-                               const Uniform &uni,
+  VolumeProperties eval_froxel([[resource_table]] const Uniform &uni,
                                const ViewMatrices view,
                                const ObjectMatrices obj,
                                const ObjectInfos ob_infos,
@@ -90,39 +112,29 @@ struct SurfVolume {
     /* Compute Original Coordinate (ORCO). */
     float3 lP_orco = lP * ob_infos.orco_mul + ob_infos.orco_add;
 
-    sd.P = wP;
-    sd.N = float3(0.0f);
-    sd.Ng = float3(0.0f);
-    sd.ray_length = distance(sd.P, view.position());
+    g_data = init_globals(view, wP);
+    attrib_load(VolumePoint{lP, lP_orco});
+    nodetree_volume();
 
-    VolumePoint volume_pt;
-    volume_pt.lP = lP;
-    volume_pt.orco_default = lP_orco;
-    for (int i = 0; i < 16 /* DRW_GRID_PER_VOLUME_MAX */; i++) [[unroll]] {
-      volume_pt.grid_co[i] = transform_point(volume.drw_volume.grids_xform[i], lP);
+    if (is_volume_object) [[static_branch]] {
+      const auto &drw_volume = buffer_get(draw_volume_infos, drw_volume);
+      g_volume_scattering *= drw_volume.density_scale;
+      g_volume_absorption *= drw_volume.density_scale;
+      g_emission *= drw_volume.density_scale;
     }
 
-    attrib_load(volume_pt);
-
-    nodetree_volume(kg, sd);
-
-    sd.volume_scattering *= volume.drw_volume.density_scale;
-    sd.volume_absorption *= volume.drw_volume.density_scale;
-    sd.emission *= volume.drw_volume.density_scale;
-
     VolumeProperties prop;
-    prop.scattering = sd.volume_scattering;
-    prop.absorption = sd.volume_absorption;
-    prop.emission = sd.emission;
-    prop.anisotropy = sd.volume_anisotropy;
+    prop.scattering = g_volume_scattering;
+    prop.absorption = g_volume_absorption;
+    prop.emission = g_emission;
+    prop.anisotropy = g_volume_anisotropy;
     return prop;
   }
 };
 
 /* Note: Only the front fragments have to be invoked. */
 [[fragment]] [[early_fragment_tests]] [[texture_atomic]]
-void surf_volume([[resource_table]] KernelGlobals &kg,
-                 [[resource_table]] PipelineConstants &pipe,
+void surf_volume([[resource_table]] PipelineConstants & /*pipe*/,
                  [[resource_table]] SurfVolume &srt,
                  [[resource_table]] const Uniform &uni,
                  [[resource_table]] const draw::Model &models,
@@ -130,17 +142,15 @@ void surf_volume([[resource_table]] KernelGlobals &kg,
                  [[resource_table]] const draw::Infos &infos,
                  [[resource_table]] const Sampling &sampling,
                  [[resource_table]] const UtilityTexture & /*util_tx*/,
-                 [[in]] const VertOutCommon &interp,
-                 [[in]] [[condition(is_curves)]] const VertOutCurves &curves_interp,
-                 [[in]] [[condition(is_pointcloud)]] const VertOutPointcloud &ptcloud_interp,
                  [[frag_coord]] const float4 frag_co,
-                 [[front_facing]] const bool front_face)
+                 [[front_facing]] const bool /*front_face*/ /* Needed for nodes. */)
 {
   int3 froxel = int3(int2(frag_co.xy), 0);
   float offset = sampling.rng_1D_get(SAMPLING_VOLUME_W);
   float jitter = volume_froxel_jitter(froxel.xy, offset);
 
-  draw::ID id{interp.resource_id_raw};
+  auto &interp_flat = interface_get(eevee_geom_iface_info, interp_flat);
+  draw::ID id{interp_flat.resource_id_raw};
   const uint resource_id = id.resource_id<1>();
   const ObjectMatrices obj = models.get(resource_id);
   const ObjectInfos ob_infos = infos.get(resource_id);
@@ -148,21 +158,10 @@ void surf_volume([[resource_table]] KernelGlobals &kg,
 
   VolumeProperties prop;
 
-  ShadingData sd = init_globals(pipe, uni, interp, view, front_face, frag_co);
-  if (pipe.is_mesh) [[static_branch]] {
-    init_globals_mesh(interp, sd, float3(0.0));
-  }
-  else if (pipe.is_curves) [[static_branch]] {
-    init_globals_curves(interp, curves_interp, sd, view);
-  }
-  else if (pipe.is_pointcloud) [[static_branch]] {
-    init_globals_pointcloud(ptcloud_interp, sd);
-  }
-
   if (srt.is_homogenous) [[static_branch]] {
     /* Homogenous volumes only evaluate properties at volume entrance and write the same values for
      * each froxel. */
-    prop = srt.eval_froxel(kg, sd, uni, view, obj, ob_infos, froxel, jitter);
+    prop = srt.eval_froxel(uni, view, obj, ob_infos, froxel, jitter);
   }
 
   occupancy::Bits occupancy;
@@ -190,7 +189,7 @@ void surf_volume([[resource_table]] KernelGlobals &kg,
 
       if (!srt.is_homogenous) [[static_branch]] {
         /* Heterogeneous volumes evaluate properties at every froxel position. */
-        prop = srt.eval_froxel(kg, sd, uni, view, obj, ob_infos, froxel, jitter);
+        prop = srt.eval_froxel(uni, view, obj, ob_infos, froxel, jitter);
       }
       srt.write_froxel(froxel, prop);
     }

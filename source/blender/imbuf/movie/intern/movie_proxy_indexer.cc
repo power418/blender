@@ -11,8 +11,6 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "DNA_color_types.h"
-
 #include "BLI_endian_switch.hh"
 #include "BLI_fileops.hh"
 #include "BLI_math_base.hh"
@@ -24,8 +22,6 @@
 #include "BLI_utildefines.hh"
 
 #include "CLG_log.h"
-
-#include "IMB_colormanagement.hh"
 
 #include "MOV_read.hh"
 
@@ -938,9 +934,7 @@ MovieReader *movie_open_proxy(MovieReader *anim, IMB_Proxy_Size preview_size)
    *
    * Also skip any colorspace conversion to the color pipeline design as it helps performance and
    * the image buffers from the proxy builder are not used anywhere else in Blender. */
-  ColorManagedColorspaceSettings colorspace_settings;
-  IMB_colormanagement_colorspace_settings_set(&colorspace_settings, anim->colorspace);
-  anim->proxy_anim[i] = MOV_open_file(filepath, ImBufFlags::Zero, 0, true, &colorspace_settings);
+  anim->proxy_anim[i] = MOV_open_file(filepath, ImBufFlags::Zero, 0, true, anim->colorspace);
 
   anim->proxies_tried |= preview_size;
 

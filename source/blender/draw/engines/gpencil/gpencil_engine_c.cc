@@ -11,6 +11,7 @@
 #include "BKE_compositor.hh"
 #include "BKE_context.hh"
 #include "BKE_curves.hh"
+#include "BKE_gpencil_legacy.h"
 #include "BKE_grease_pencil.hh"
 #include "BKE_material.hh"
 #include "BKE_object.hh"
@@ -367,7 +368,7 @@ tObject *Instance::object_sync_do(Object *ob, ResourceHandleRange res_handle)
   gpu::Texture *tex_fill = this->dummy_tx;
   gpu::Texture *tex_stroke = this->dummy_tx;
 
-  Batch *iter_geom = nullptr;
+  gpu::Batch *iter_geom = nullptr;
   PassSimple *last_pass = nullptr;
   int vfirst = 0;
   int vcount = 0;
@@ -384,7 +385,7 @@ tObject *Instance::object_sync_do(Object *ob, ResourceHandleRange res_handle)
   };
 
   const auto drawcall_add =
-      [&](PassSimple &pass, Batch *draw_geom, const int v_first, const int v_count) {
+      [&](PassSimple &pass, gpu::Batch *draw_geom, const int v_first, const int v_count) {
 #if DISABLE_BATCHING
         pass.draw(iter_geom, 1, vcount, vfirst, res_handle);
         return;
@@ -591,7 +592,7 @@ tObject *Instance::object_sync_do(Object *ob, ResourceHandleRange res_handle)
         }
       }
 
-      Batch *geom = DRW_cache_grease_pencil_get(this->scene, ob);
+      gpu::Batch *geom = DRW_cache_grease_pencil_get(this->scene, ob);
       if (iter_geom != geom) {
         drawcall_flush(pass);
 

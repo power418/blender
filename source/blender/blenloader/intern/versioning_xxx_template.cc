@@ -24,7 +24,7 @@
 
 #include "DNA_ID.h"
 
-#include "BLI_sys_types.hh"
+#include "BLI_sys_types.h"
 
 #include "BKE_main.hh"
 

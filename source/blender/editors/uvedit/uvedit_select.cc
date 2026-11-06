@@ -1261,7 +1261,7 @@ void uv_nearest_hit_elem_set_from_face(const float co[2],
    * the current selection mode, see: #152045.
    *
    * If this isn't needed, passing in a `uv_selectmode` of #UV_SELECT_FACE is a harmless NOP. */
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(hit->ob);
+  BMesh *bm = BKE_editmesh_from_object(hit->ob)->bm;
   const int cd_loop_uv_offset = CustomData_get_offset(&bm->ldata, CD_PROP_FLOAT2);
 
   if (uv_selectmode & UV_SELECT_VERT) {
@@ -1310,7 +1310,7 @@ bool uv_find_nearest_edge(
     Scene *scene, Object *obedit, const float co[2], const float penalty, UvNearestHit *hit)
 {
   BLI_assert((hit->scale[0] > 0.0f) && (hit->scale[1] > 0.0f));
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   BMFace *efa;
   BMLoop *l;
   BMIter iter, liter;
@@ -1377,7 +1377,7 @@ bool uv_find_nearest_face_ex(
     Scene *scene, Object *obedit, const float co[2], UvNearestHit *hit, const bool only_in_face)
 {
   BLI_assert((hit->scale[0] > 0.0f) && (hit->scale[1] > 0.0f));
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   bool found = false;
 
   const int cd_loop_uv_offset = CustomData_get_offset(&bm->ldata, CD_PROP_FLOAT2);
@@ -1460,7 +1460,7 @@ bool uv_find_nearest_vert(
   BLI_assert((hit->scale[0] > 0.0f) && (hit->scale[1] > 0.0f));
   bool found = false;
 
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   BMFace *efa;
   BMIter iter;
 
@@ -1536,7 +1536,7 @@ static bool uvedit_nearest_uv(const Scene *scene,
                               float *dist_sq,
                               float r_uv[2])
 {
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   BMIter iter;
   BMFace *efa;
   const float *uv_best = nullptr;
@@ -1610,7 +1610,7 @@ bool ED_uvedit_nearest_uv_multi(const View2D *v2d,
 
 BMLoop *uv_find_nearest_loop_from_vert(Scene *scene, Object *obedit, BMVert *v, const float co[2])
 {
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   const int cd_loop_uv_offset = CustomData_get_offset(&bm->ldata, CD_PROP_FLOAT2);
 
   BMIter liter;
@@ -1635,7 +1635,7 @@ BMLoop *uv_find_nearest_loop_from_vert(Scene *scene, Object *obedit, BMVert *v, 
 
 BMLoop *uv_find_nearest_loop_from_edge(Scene *scene, Object *obedit, BMEdge *e, const float co[2])
 {
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   const int cd_loop_uv_offset = CustomData_get_offset(&bm->ldata, CD_PROP_FLOAT2);
 
   BMIter eiter;
@@ -2276,7 +2276,7 @@ static void uv_select_edgeloop_single_side_tag(const Scene *scene,
 static int uv_select_edgeloop(Scene *scene, Object *obedit, UvNearestHit *hit, const bool extend)
 {
   const ToolSettings *ts = scene->toolsettings;
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   bool select;
 
   /* NOTE: this is a special case, even when sync select is enabled,
@@ -2372,7 +2372,7 @@ static int uv_select_edgeloop(Scene *scene, Object *obedit, UvNearestHit *hit, c
 static int uv_select_faceloop(Scene *scene, Object *obedit, UvNearestHit *hit, const bool extend)
 {
   const ToolSettings *ts = scene->toolsettings;
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   bool select;
 
   if (!extend) {
@@ -2441,7 +2441,7 @@ static int uv_select_faceloop(Scene *scene, Object *obedit, UvNearestHit *hit, c
 static int uv_select_edgering(Scene *scene, Object *obedit, UvNearestHit *hit, const bool extend)
 {
   const ToolSettings *ts = scene->toolsettings;
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   const bool use_face_select = (ts->uv_flag & UV_FLAG_SELECT_SYNC) ?
                                    (ts->selectmode & SCE_SELECT_FACE) :
                                    (ts->uv_selectmode & UV_SELECT_FACE);
@@ -2521,17 +2521,10 @@ static int uv_select_edgering(Scene *scene, Object *obedit, UvNearestHit *hit, c
       if (l_step && BM_elem_flag_test(l_step->e, BM_ELEM_TAG)) {
         /* Previously this check was not done and this resulted in the final edge in the edge ring
          * cycle to be skipped during selection (caused by old sticky selection behavior). */
-        bool is_select;
-        if (use_vertex_select && !use_face_select) {
-          /* When selecting vertices in sync-select mode we must read from vertices too
-           * since flushing to edges happens afterwards. */
-          is_select = uvedit_uv_select_test(scene, bm, l_step, offsets) &&
-                      uvedit_uv_select_test(scene, bm, l_step->next, offsets);
+        if (select && uvedit_edge_select_test(scene, bm, l_step, offsets)) {
+          break;
         }
-        else {
-          is_select = uvedit_edge_select_test(scene, bm, l_step, offsets);
-        }
-        if (is_select == select) {
+        if (!select && !uvedit_edge_select_test(scene, bm, l_step, offsets)) {
           break;
         }
       }
@@ -2634,7 +2627,7 @@ static void uv_select_linked_multi(const Scene *scene,
     int i, stacksize = 0, *stack;
     uint a;
     char *flag;
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
 
     if (uv_select_sync) {
       uvedit_select_prepare_sync_select(scene, bm);
@@ -3113,7 +3106,7 @@ struct UVCircleSelectState {
     if (use_select_linked) {
       linked_helpers.emplace(this->objects.size());
       for (const int i : this->objects.index_range()) {
-        BMesh *bm = BKE_editmesh_bmesh_get_for_write(this->objects[i]);
+        BMesh *bm = BKE_editmesh_from_object(this->objects[i])->bm;
         (*linked_helpers)[i].init(scene, bm);
       }
     }
@@ -3173,7 +3166,7 @@ static wmOperatorStatus uv_select_more_less(bContext *C, const bool select)
                                          (ts->uv_selectmode == UV_SELECT_FACE);
 
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
 
     bool changed = false;
 
@@ -3188,10 +3181,10 @@ static wmOperatorStatus uv_select_more_less(bContext *C, const bool select)
     if ((ts->uv_flag & UV_FLAG_SELECT_SYNC) && (bm->uv_select_sync_valid == false)) {
       BMEditMesh *em = BKE_editmesh_from_object(obedit);
       if (select) {
-        EDBM_select_more(bm, em->selectmode, true);
+        EDBM_select_more(em, true);
       }
       else {
-        EDBM_select_less(bm, em->selectmode, true);
+        EDBM_select_less(em, true);
       }
 
       DEG_id_tag_update(obedit->data, ID_RECALC_SELECT);
@@ -3384,7 +3377,7 @@ bool uvedit_select_is_any_selected_multi(const Scene *scene, const Span<Object *
 {
   bool found = false;
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
     if (uvedit_select_is_any_selected(scene, bm)) {
       found = true;
       break;
@@ -3393,19 +3386,20 @@ bool uvedit_select_is_any_selected_multi(const Scene *scene, const Span<Object *
   return found;
 }
 
-static void uv_select_all(const Scene *scene, BMesh *bm, bool select_all)
+static void uv_select_all(const Scene *scene, BMEditMesh *em, bool select_all)
 {
   const ToolSettings *ts = scene->toolsettings;
+  BMesh *bm = em->bm;
 
   if (ts->uv_flag & UV_FLAG_SELECT_SYNC) {
     /* Clear all partial selection as there is no need for it. */
     bm->uv_select_sync_valid = false;
 
     if (select_all) {
-      EDBM_flag_enable_all(bm, BM_ELEM_SELECT);
+      EDBM_flag_enable_all(em, BM_ELEM_SELECT);
     }
     else {
-      EDBM_flag_disable_all(bm, BM_ELEM_SELECT);
+      EDBM_flag_disable_all(em, BM_ELEM_SELECT);
     }
     return;
   }
@@ -3428,15 +3422,16 @@ static void uv_select_all(const Scene *scene, BMesh *bm, bool select_all)
   }
 }
 
-static void uv_select_toggle_all(const Scene *scene, BMesh *bm)
+static void uv_select_toggle_all(const Scene *scene, BMEditMesh *em)
 {
-  bool select_any = uvedit_select_is_any_selected(scene, bm);
-  uv_select_all(scene, bm, !select_any);
+  bool select_any = uvedit_select_is_any_selected(scene, em->bm);
+  uv_select_all(scene, em, !select_any);
 }
 
-static void uv_select_invert(const Scene *scene, BMEditMesh *em, BMesh *bm)
+static void uv_select_invert(const Scene *scene, BMEditMesh *em)
 {
   const ToolSettings *ts = scene->toolsettings;
+  BMesh *bm = em->bm;
 
   if (ts->uv_flag & UV_FLAG_SELECT_SYNC) {
     if (ED_uvedit_sync_uvselect_ignore(ts)) {
@@ -3444,8 +3439,8 @@ static void uv_select_invert(const Scene *scene, BMEditMesh *em, BMesh *bm)
     }
     /* If selection wasn't synced, there is no need to sync. */
     if (bm->uv_select_sync_valid == false) {
-      EDBM_select_swap(em, bm);
-      EDBM_selectmode_flush(bm, em->selectmode);
+      EDBM_select_swap(em);
+      EDBM_selectmode_flush(em);
       return;
     }
 
@@ -3576,33 +3571,32 @@ void ED_uvedit_deselect_all(const Scene *scene, Object *obedit, int action)
 {
   const ToolSettings *ts = scene->toolsettings;
   BMEditMesh *em = BKE_editmesh_from_object(obedit);
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
 
   /* In the case of where the selection is all or none, there is no need to hold
    * a separate state for UV's and the mesh. */
   if (ts->uv_flag & UV_FLAG_SELECT_SYNC) {
-    if (bm->uv_select_sync_valid) {
+    if (em->bm->uv_select_sync_valid) {
       if (ELEM(action, SEL_SELECT, SEL_DESELECT)) {
-        EDBM_uvselect_clear(bm);
+        EDBM_uvselect_clear(em);
       }
     }
   }
 
   switch (action) {
     case SEL_TOGGLE: {
-      uv_select_toggle_all(scene, bm);
+      uv_select_toggle_all(scene, em);
       break;
     }
     case SEL_SELECT: {
-      uv_select_all(scene, bm, true);
+      uv_select_all(scene, em, true);
       break;
     }
     case SEL_DESELECT: {
-      uv_select_all(scene, bm, false);
+      uv_select_all(scene, em, false);
       break;
     }
     case SEL_INVERT: {
-      uv_select_invert(scene, em, bm);
+      uv_select_invert(scene, em);
       break;
     }
   }
@@ -3731,7 +3725,7 @@ static bool uv_mouse_select_multi(bContext *C,
 
     if (found_item) {
       if ((ts->uv_flag & UV_FLAG_SELECT_SYNC) == 0) {
-        BMesh *bm = BKE_editmesh_bmesh_get_for_write(hit.ob);
+        BMesh *bm = BKE_editmesh_from_object(hit.ob)->bm;
         ED_uvedit_active_vert_loop_set(bm, hit.l);
       }
     }
@@ -3752,7 +3746,7 @@ static bool uv_mouse_select_multi(bContext *C,
 
     if (found_item) {
       if ((ts->uv_flag & UV_FLAG_SELECT_SYNC) == 0) {
-        BMesh *bm = BKE_editmesh_bmesh_get_for_write(hit.ob);
+        BMesh *bm = BKE_editmesh_from_object(hit.ob)->bm;
         ED_uvedit_active_edge_loop_set(bm, hit.l);
       }
     }
@@ -3770,7 +3764,7 @@ static bool uv_mouse_select_multi(bContext *C,
     }
 
     if (found_item) {
-      BMesh *bm = BKE_editmesh_bmesh_get_for_write(hit.ob);
+      BMesh *bm = BKE_editmesh_from_object(hit.ob)->bm;
       BM_mesh_active_face_set(bm, hit.efa);
     }
   }
@@ -3781,7 +3775,7 @@ static bool uv_mouse_select_multi(bContext *C,
   bool is_selected = false;
   if (found) {
     Object *obedit = hit.ob;
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
     if (ts->uv_flag & UV_FLAG_SELECT_SYNC) {
       /* Pass. */
     }
@@ -3817,7 +3811,7 @@ static bool uv_mouse_select_multi(bContext *C,
 
   if (found) {
     Object *obedit = hit.ob;
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
 
     if (ts->uv_flag & UV_FLAG_SELECT_SYNC) {
       /* Pass. */
@@ -4061,7 +4055,7 @@ static wmOperatorStatus uv_mouse_select_loop_generic_multi(bContext *C,
   }
 
   Object *obedit = hit.ob;
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
 
   /* Do selection. */
   if (!extend) {
@@ -4462,7 +4456,7 @@ static wmOperatorStatus uv_select_split_exec(bContext *C, wmOperator *op)
       *bmain, scene, view_layer, nullptr);
 
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
 
     bool changed = false;
 
@@ -4559,7 +4553,7 @@ static void uv_select_sync_update(const Scene *scene, Object *obedit)
   }
 
   /* Sync selection has been disabled re-use or re-create the select-sync data. */
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   /* May be -1, this is accounted for. */
   const int cd_loop_uv_offset = CustomData_get_offset(&bm->ldata, CD_PROP_FLOAT2);
   if (bm->selectmode == ts->uv_selectmode) {
@@ -4619,7 +4613,7 @@ static void uv_select_flush_from_tag_face(const Scene *scene, Object *obedit, co
    * selection (so for sticky modes, vertex or location based). */
 
   const ToolSettings *ts = scene->toolsettings;
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   BMFace *efa;
   BMLoop *l;
   BMIter iter, liter;
@@ -4712,7 +4706,7 @@ static void uv_select_flush_from_tag_loop(const Scene *scene, Object *obedit, co
    * selection (so for sticky modes, vertex or location based). */
 
   const ToolSettings *ts = scene->toolsettings;
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   BMFace *efa;
   BMLoop *l;
   BMIter iter, liter;
@@ -4967,7 +4961,7 @@ static wmOperatorStatus uv_box_select_exec(bContext *C, wmOperator *op)
 
   /* don't indent to avoid diff noise! */
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
 
     bool changed = false;
 
@@ -5265,7 +5259,7 @@ static wmOperatorStatus uv_circle_select_exec(bContext *C, wmOperator *op)
 
   for (const int ob_index : objects.index_range()) {
     Object *obedit = objects[ob_index];
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
 
     bool changed = false;
 
@@ -5507,7 +5501,7 @@ static bool do_lasso_select_mesh_uv(bContext *C, const Span<int2> mcoords, const
 
     bool changed = false;
 
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
 
     if (ts->uv_flag & UV_FLAG_SELECT_SYNC) {
       uvedit_select_prepare_sync_select(scene, bm);
@@ -5733,7 +5727,7 @@ static wmOperatorStatus uv_select_pinned_exec(bContext *C, wmOperator *op)
 
   for (Object *obedit : objects) {
     Mesh &mesh = *id_cast<Mesh *>(obedit->data);
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(&mesh);
+    BMesh *bm = mesh.runtime->edit_mesh->bm;
 
     const StringRef active_uv_name = mesh.active_uv_map_name();
     if (!BM_uv_map_attr_pin_exists(bm, active_uv_name)) {
@@ -5880,7 +5874,7 @@ static wmOperatorStatus uv_select_overlap(bContext *C, const bool extend, const 
   for (const int i : IndexRange(objects.size())) {
     Object *obedit = objects[i];
 
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
 
     BM_mesh_elem_table_ensure(bm, BM_FACE);
     BM_mesh_elem_index_ensure(bm, BM_VERT | BM_FACE);
@@ -5916,7 +5910,7 @@ static wmOperatorStatus uv_select_overlap(bContext *C, const bool extend, const 
 
   for (const int ob_index : objects.index_range()) {
     Object *obedit = objects[ob_index];
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
     BMIter iter, liter;
     BMFace *efa;
     BMLoop *l;
@@ -6034,8 +6028,8 @@ static wmOperatorStatus uv_select_overlap(bContext *C, const bool extend, const 
       Object *ob_src = (*data->objects)[src->ob_index];
       Object *ob_dst = (*data->objects)[dst->ob_index];
 
-      BMesh *bm_src = BKE_editmesh_bmesh_get_for_write(ob_src);
-      BMesh *bm_dst = BKE_editmesh_bmesh_get_for_write(ob_dst);
+      BMesh *bm_src = BKE_editmesh_from_object(ob_src)->bm;
+      BMesh *bm_dst = BKE_editmesh_from_object(ob_dst)->bm;
 
       BMFace *face_src = bm_src->ftable[src->face_index];
       BMFace *face_dst = bm_dst->ftable[dst->face_index];
@@ -6056,7 +6050,7 @@ static wmOperatorStatus uv_select_overlap(bContext *C, const bool extend, const 
   for (int i = 0; i < uv_tri_len; i++) {
     UVOverlapData *src_data = &overlap_data[i];
     Object *ob = objects[src_data->ob_index];
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+    BMesh *bm = BKE_editmesh_from_object(ob)->bm;
     BMFace *face = bm->ftable[src_data->face_index];
 
     if (BM_elem_flag_test(face, BM_ELEM_TAG)) {
@@ -6085,7 +6079,7 @@ static wmOperatorStatus uv_select_overlap(bContext *C, const bool extend, const 
       }
 
       Object *obedit = objects[i];
-      BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+      BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
       UVSelectLinkedHelper linked_helper(scene, bm);
 
       BMFace *efa;
@@ -6105,7 +6099,7 @@ static wmOperatorStatus uv_select_overlap(bContext *C, const bool extend, const 
     const bool select = true;
 
     if (tag_info.has_overlap) {
-      BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+      BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
 
       if (uv_select_sync) {
         uvedit_select_prepare_sync_select(scene, bm);
@@ -6189,7 +6183,7 @@ static wmOperatorStatus uv_select_by_winding_exec(bContext *C, wmOperator *op)
   }
 
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
     const BMUVOffsets offsets = BM_uv_map_offsets_get(bm);
 
     BM_mesh_elem_hflag_disable_all(bm, BM_FACE, BM_ELEM_TAG, false);
@@ -6456,7 +6450,7 @@ static wmOperatorStatus uv_select_similar_vert_exec(bContext *C, wmOperator *op)
   Map<float, int> points_1d;
 
   for (Object *ob : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+    BMesh *bm = BKE_editmesh_from_object(ob)->bm;
     if (bm->totvertsel == 0) {
       continue;
     }
@@ -6490,7 +6484,7 @@ static wmOperatorStatus uv_select_similar_vert_exec(bContext *C, wmOperator *op)
   kdtree_balance<float>(tree_1d);
 
   for (Object *ob : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+    BMesh *bm = BKE_editmesh_from_object(ob)->bm;
     if (bm->totvertsel == 0) {
       /* No selection means no visible UV's unless sync-select is enabled. */
       if (!(ts->uv_flag & UV_FLAG_SELECT_SYNC)) {
@@ -6568,7 +6562,7 @@ static wmOperatorStatus uv_select_similar_edge_exec(bContext *C, wmOperator *op)
   Map<float, int> points_1d;
 
   for (Object *ob : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+    BMesh *bm = BKE_editmesh_from_object(ob)->bm;
     if (bm->totvertsel == 0) {
       continue;
     }
@@ -6603,7 +6597,7 @@ static wmOperatorStatus uv_select_similar_edge_exec(bContext *C, wmOperator *op)
   kdtree_balance<float>(tree_1d);
 
   for (Object *ob : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+    BMesh *bm = BKE_editmesh_from_object(ob)->bm;
     if (bm->totvertsel == 0) {
       /* No selection means no visible UV's unless sync-select is enabled. */
       if (!(ts->uv_flag & UV_FLAG_SELECT_SYNC)) {
@@ -6699,7 +6693,7 @@ static wmOperatorStatus uv_select_similar_face_exec(bContext *C, wmOperator *op)
 
   for (const int ob_index : objects.index_range()) {
     Object *ob = objects[ob_index];
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+    BMesh *bm = BKE_editmesh_from_object(ob)->bm;
     if (bm->totvertsel == 0) {
       continue;
     }
@@ -6735,7 +6729,7 @@ static wmOperatorStatus uv_select_similar_face_exec(bContext *C, wmOperator *op)
 
   for (const int ob_index : objects.index_range()) {
     Object *ob = objects[ob_index];
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+    BMesh *bm = BKE_editmesh_from_object(ob)->bm;
     if (bm->totvertsel == 0) {
       /* No selection means no visible UV's unless sync-select is enabled. */
       if (!(ts->uv_flag & UV_FLAG_SELECT_SYNC)) {
@@ -6825,7 +6819,7 @@ static wmOperatorStatus uv_select_similar_island_exec(bContext *C, wmOperator *o
 
   for (const int ob_index : objects.index_range()) {
     Object *obedit = objects[ob_index];
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
     const BMUVOffsets offsets = BM_uv_map_offsets_get(bm);
     float aspect_y = 1.0f; /* Placeholder value, aspect doesn't change connectivity. */
     island_list_len += bm_mesh_calc_uv_islands(
@@ -6839,7 +6833,7 @@ static wmOperatorStatus uv_select_similar_island_exec(bContext *C, wmOperator *o
 
   for (const int ob_index : objects.index_range()) {
     Object *obedit = objects[ob_index];
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
 
     float ob_m3[3][3];
     copy_m3_m4(ob_m3, obedit->object_to_world().ptr());
@@ -6863,7 +6857,7 @@ static wmOperatorStatus uv_select_similar_island_exec(bContext *C, wmOperator *o
   int tot_island_index = 0;
   for (const int ob_index : objects.index_range()) {
     Object *obedit = objects[ob_index];
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
 
     if (ts->uv_flag & UV_FLAG_SELECT_SYNC) {
       uvedit_select_prepare_sync_select(scene, bm);
@@ -7202,7 +7196,7 @@ void ED_uvedit_selectmode_clean(const Scene *scene, Object *obedit)
 {
   const ToolSettings *ts = scene->toolsettings;
   BLI_assert((ts->uv_flag & UV_FLAG_SELECT_SYNC) == 0);
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
   char sticky = ts->uv_sticky;
 
   uvedit_select_prepare_custom_data(scene, bm);
@@ -7407,8 +7401,8 @@ static wmOperatorStatus uv_select_tile_exec(bContext *C, wmOperator *op)
   const bool extend = RNA_boolean_get(op->ptr, "extend");
 
   for (Object *ob : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
-    const BMUVOffsets offsets = BM_uv_map_offsets_get(bm);
+    BMEditMesh *em = BKE_editmesh_from_object(ob);
+    const BMUVOffsets offsets = BM_uv_map_offsets_get(em->bm);
 
     bool changed = false;
     if (!extend) {
@@ -7417,15 +7411,15 @@ static wmOperatorStatus uv_select_tile_exec(bContext *C, wmOperator *op)
     }
 
     if (ts->uv_flag & UV_FLAG_SELECT_SYNC) {
-      uvedit_select_prepare_sync_select(scene, bm);
+      uvedit_select_prepare_sync_select(scene, em->bm);
     }
     else {
-      uvedit_select_prepare_custom_data(scene, bm);
+      uvedit_select_prepare_custom_data(scene, em->bm);
     }
 
     BMFace *f;
     BMIter iter;
-    BM_ITER_MESH (f, &iter, bm, BM_FACES_OF_MESH) {
+    BM_ITER_MESH (f, &iter, em->bm, BM_FACES_OF_MESH) {
       if (!uvedit_face_visible_test(scene, f)) {
         continue;
       }
@@ -7435,16 +7429,16 @@ static wmOperatorStatus uv_select_tile_exec(bContext *C, wmOperator *op)
       float2 center;
       BM_face_uv_calc_center_median(f, offsets.uv, center);
       if (BLI_rctf_isect_pt_v(&tile_rect, center)) {
-        uvedit_face_select_set_with_sticky(scene, bm, f, true, offsets);
+        uvedit_face_select_set_with_sticky(scene, em->bm, f, true, offsets);
         changed = true;
       }
     }
     if (changed) {
       if (ts->uv_flag & UV_FLAG_SELECT_SYNC) {
-        ED_uvedit_select_sync_flush(ts, bm, true);
+        ED_uvedit_select_sync_flush(ts, em->bm, true);
       }
       else {
-        ED_uvedit_selectmode_flush(scene, bm);
+        ED_uvedit_selectmode_flush(scene, em->bm);
       }
       uv_select_tag_update_for_object(depsgraph, ts, ob);
     }

@@ -72,15 +72,12 @@ template<typename T> struct ListBaseT : public ListBase {
   }
 
   /**
-   * Free all items in the list using the guarded allocator. Only supported for trivially
-   * destructible types.
+   * Free all items in the list using the guarded allocator. Does not call the destructor.
    */
   void free_no_destruct()
   {
-    static_assert(std::is_trivially_destructible_v<T>,
-                  "Items with a non-trivial destructor have to be freed separately");
-    for (T &item : this->items_mutable()) {
-      MEM_delete(&item);
+    for ([[maybe_unused]] T &item : this->items_mutable()) {
+      MEM_delete_void(static_cast<void *>(&item));
     }
     this->first_ = nullptr;
     this->last_ = nullptr;

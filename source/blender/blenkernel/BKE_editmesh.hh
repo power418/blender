@@ -40,10 +40,7 @@ struct Scene;
  * #Mesh.runtime.edit_mesh stores a pointer to this structure.
  */
 struct BMEditMesh {
-  /**
-   * Always owned by an original mesh in edit mode. Access via #BKE_editmesh_bmesh_get_for_write or
-   * BKE_editmesh_bmesh_get.
-   */
+  /* Always owned by an original mesh in edit mode. */
   BMesh *bm;
 
   /**
@@ -71,24 +68,19 @@ struct BMEditMesh {
 
 /* editmesh.cc */
 
-void BKE_editmesh_looptris_calc_ex(BMEditMesh *em,
-                                   BMesh *bm,
-                                   const BMeshCalcTessellation_Params *params);
-void BKE_editmesh_looptris_calc(BMEditMesh *em, BMesh *bm);
+void BKE_editmesh_looptris_calc_ex(BMEditMesh *em, const BMeshCalcTessellation_Params *params);
+void BKE_editmesh_looptris_calc(BMEditMesh *em);
 void BKE_editmesh_looptris_calc_with_partial_ex(BMEditMesh *em,
-                                                BMesh *bm,
                                                 BMPartialUpdate *bmpinfo,
                                                 const BMeshCalcTessellation_Params *params);
-void BKE_editmesh_looptris_calc_with_partial(BMEditMesh *em, BMesh *bm, BMPartialUpdate *bmpinfo);
-void BKE_editmesh_looptris_and_normals_calc_with_partial(BMEditMesh *em,
-                                                         BMesh *bm,
-                                                         BMPartialUpdate *bmpinfo);
+void BKE_editmesh_looptris_calc_with_partial(BMEditMesh *em, BMPartialUpdate *bmpinfo);
+void BKE_editmesh_looptris_and_normals_calc_with_partial(BMEditMesh *em, BMPartialUpdate *bmpinfo);
 
 /**
  * Performing the face normal calculation at the same time as tessellation
  * gives a reasonable performance boost (approx ~20% faster).
  */
-void BKE_editmesh_looptris_and_normals_calc(BMEditMesh *em, BMesh *bm);
+void BKE_editmesh_looptris_and_normals_calc(BMEditMesh *em);
 
 /**
  * \note The caller is responsible for ensuring triangulation data,
@@ -110,10 +102,6 @@ BMEditMesh *BKE_editmesh_copy(BMEditMesh *em);
  * - Null check the result if we want to respect the evaluated result, see: #154739.
  */
 BMEditMesh *BKE_editmesh_from_object(Object *ob);
-const BMesh *BKE_editmesh_bmesh_get(const Object *ob);
-const BMesh *BKE_editmesh_bmesh_get(const Mesh *mesh);
-BMesh *BKE_editmesh_bmesh_get_for_write(Mesh *mesh);
-BMesh *BKE_editmesh_bmesh_get_for_write(Object *ob);
 
 /**
  * Return whether the evaluated mesh is a "descendant" of the original mesh: whether it is a
@@ -128,15 +116,13 @@ bool BKE_editmesh_eval_orig_map_available(const Mesh &mesh_eval, const Mesh *mes
 void BKE_editmesh_free_data(BMEditMesh *em);
 
 Array<float3> BKE_editmesh_vert_coords_alloc(Depsgraph *depsgraph,
-                                             const BMesh *bm,
+                                             BMEditMesh *em,
                                              Scene *scene,
                                              Object *ob);
-Array<float3> BKE_editmesh_vert_coords_alloc_orco(const BMesh *bm);
-Span<float3> BKE_editmesh_vert_coords_when_deformed(Depsgraph *depsgraph,
-                                                    Scene *scene,
-                                                    Object *obedit,
-                                                    Array<float3> &r_alloc);
+Array<float3> BKE_editmesh_vert_coords_alloc_orco(BMEditMesh *em);
+Span<float3> BKE_editmesh_vert_coords_when_deformed(
+    Depsgraph *depsgraph, BMEditMesh *em, Scene *scene, Object *obedit, Array<float3> &r_alloc);
 
-void BKE_editmesh_lnorspace_update(BMesh *bm);
+void BKE_editmesh_lnorspace_update(BMEditMesh *em);
 
 }  // namespace blender

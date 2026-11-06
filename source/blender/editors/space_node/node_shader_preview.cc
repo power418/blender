@@ -66,31 +66,30 @@ namespace blender::ed::space_node {
 using NodeSocketPair = std::pair<bNode *, bNodeSocket *>;
 
 struct ShaderNodesPreviewJob {
-  NestedTreePreviews *tree_previews = nullptr;
-  Scene *scene = nullptr;
+  NestedTreePreviews *tree_previews;
+  Scene *scene;
   /* Pointer to the job's stop variable which is used to know when the job is asked for finishing.
    * The idea is that the renderer will read this value frequently and abort the render if it is
    * true. */
-  bool *stop = nullptr;
+  bool *stop;
   /* Pointer to the job's update variable which is set to true to refresh the UI when the renderer
    * is delivering a fresh result. It allows the job to give some UI refresh tags to the WM. */
-  bool *do_update = nullptr;
+  bool *do_update;
 
-  Material *mat_copy = nullptr;
-  World *world_simple = nullptr;
-  ePreviewType preview_type = MA_FLAT;
-  bNode *mat_output_copy = nullptr;
-  NodeSocketPair mat_displacement_copy = {};
+  Material *mat_copy;
+  ePreviewType preview_type;
+  bNode *mat_output_copy;
+  NodeSocketPair mat_displacement_copy;
   /* TreePath used to locate the nodetree.
    * bNodeTreePath elements have some listbase pointers which should not be used. */
   Vector<bNodeTreePath *> treepath_copy;
   Vector<NodeSocketPair> AOV_nodes;
   Vector<NodeSocketPair> shader_nodes;
 
-  bNode *rendering_node = nullptr;
-  bool rendering_AOVs = false;
+  bNode *rendering_node;
+  bool rendering_AOVs;
 
-  Main *bmain = nullptr;
+  Main *bmain;
 };
 
 /** \} */
@@ -174,10 +173,12 @@ static Material *duplicate_material(const Material &mat)
   return ma_copy;
 }
 
-static Scene *preview_prepare_scene(ShaderNodesPreviewJob &job_data, Main *pr_main)
+static Scene *preview_prepare_scene(const Main *bmain,
+                                    const Scene *scene_orig,
+                                    Main *pr_main,
+                                    Material *mat_copy,
+                                    ePreviewType preview_type)
 {
-  const Main *bmain = job_data.bmain;
-  const Scene *scene_orig = job_data.scene;
   Scene *scene_preview;
 
   memcpy(pr_main->filepath, BKE_main_blendfile_path(bmain), sizeof(pr_main->filepath));
@@ -213,16 +214,12 @@ static Scene *preview_prepare_scene(ShaderNodesPreviewJob &job_data, Main *pr_ma
   scene_preview->r.cfra = scene_orig->r.cfra;
 
   /* Setup the world. */
-  if (job_data.world_simple == nullptr) {
-    job_data.world_simple = ED_preview_prepare_world_simple(pr_main);
-  }
-  scene_preview->world = job_data.world_simple;
+  scene_preview->world = ED_preview_prepare_world_simple(pr_main);
   ED_preview_world_simple_set_rgb(scene_preview->world, float4{0.05f, 0.05f, 0.05f, 0.05f});
 
-  BLI_addtail(&pr_main->materials, job_data.mat_copy);
+  BLI_addtail(&pr_main->materials, mat_copy);
 
-  ED_preview_set_visibility(
-      pr_main, scene_preview, view_layer, job_data.preview_type, PR_BUTS_RENDER);
+  ED_preview_set_visibility(pr_main, scene_preview, view_layer, preview_type, PR_BUTS_RENDER);
 
   BKE_view_layer_synced_ensure(*pr_main, scene_preview, view_layer);
   for (Base &base : *BKE_view_layer_object_bases_get(view_layer)) {
@@ -233,7 +230,7 @@ static Scene *preview_prepare_scene(ShaderNodesPreviewJob &job_data, Main *pr_ma
         int actcol = max_ii(base.object->actcol - 1, 0);
 
         if (matar && actcol < base.object->totcol) {
-          (*matar)[actcol] = job_data.mat_copy;
+          (*matar)[actcol] = mat_copy;
         }
       }
       else if (base.object->type == OB_LAMP) {
@@ -593,7 +590,8 @@ static void all_nodes_preview_update(void *npv, RenderResult *rr)
 static void preview_render(ShaderNodesPreviewJob &job_data)
 {
   /* Get the stuff from the builtin preview dbase. */
-  Scene *scene = preview_prepare_scene(job_data, G.pr_main);
+  Scene *scene = preview_prepare_scene(
+      job_data.bmain, job_data.scene, G.pr_main, job_data.mat_copy, job_data.preview_type);
   if (scene == nullptr) {
     return;
   }
@@ -758,9 +756,6 @@ static void shader_preview_free(void *customdata)
     BLI_remlink(&G.pr_main->materials, job_data->mat_copy);
     BKE_id_free(G.pr_main, &job_data->mat_copy->id);
     job_data->mat_copy = nullptr;
-  }
-  if (job_data->world_simple != nullptr) {
-    BKE_id_free(G.pr_main, &job_data->world_simple->id);
   }
   MEM_delete(job_data);
 }

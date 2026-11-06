@@ -34,13 +34,6 @@ struct bNode;
 struct bNodeSocket;
 struct bNodeTree;
 
-struct bNodeInternalLink {
-  bNodeSocket *in = nullptr;
-  bNodeSocket *out = nullptr;
-
-  friend bool operator==(const bNodeInternalLink &a, const bNodeInternalLink &b) = default;
-};
-
 namespace nodes {
 struct EvalDependencies;
 struct GeneratedTreeSrnaData;
@@ -143,9 +136,6 @@ class bNodeTreeRuntime : NonCopyable, NonMovable {
    * #eNodeTreeRuntimeFlag.
    */
   uint8_t runtime_flag = 0;
-
-  /** Protect from recursive updates of node trees, see #BKE_ntree_update_without_main. */
-  bool is_updating = false;
 
   /**
    * Contains a number increased for each node-tree update.
@@ -398,7 +388,7 @@ class bNodeRuntime : NonCopyable, NonMovable {
   float anim_ofsx;
 
   /** List of cached internal links (input to output), for muted nodes and operators. */
-  Vector<bNodeInternalLink> internal_links;
+  Vector<bNodeLink> internal_links;
 
   /** Eagerly maintained cache of the node's index in the tree. */
   int index_in_tree = -1;
@@ -891,11 +881,6 @@ inline bool bNode::is_muted() const
   return this->flag & NODE_MUTED;
 }
 
-inline bool bNode::is_selected() const
-{
-  return this->flag & NODE_SELECT;
-}
-
 inline bool bNode::is_reroute() const
 {
   return this->type_legacy == NODE_REROUTE;
@@ -936,7 +921,7 @@ inline bool bNode::is_type(const UString query_idname) const
   return this->typeinfo->is_type(query_idname);
 }
 
-inline Span<bNodeInternalLink> bNode::internal_links() const
+inline Span<bNodeLink> bNode::internal_links() const
 {
   return this->runtime->internal_links;
 }

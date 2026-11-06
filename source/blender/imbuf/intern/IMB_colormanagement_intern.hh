@@ -8,9 +8,6 @@
 
 #pragma once
 
-#include <optional>
-#include <string>
-
 namespace blender {
 
 namespace ocio {
@@ -21,7 +18,6 @@ class CPUProcessor;
 using ColorSpace = ocio::ColorSpace;
 
 struct ImBuf;
-struct Main;
 enum class ColorManagedFileOutput;
 
 #define MAX_COLORSPACE_NAME 64
@@ -30,11 +26,6 @@ enum class ColorManagedFileOutput;
 
 void colormanagement_init();
 void colormanagement_exit();
-
-void colormanage_environment_setup_for_test(std::optional<std::string> blender_ocio_env,
-                                            std::optional<std::string> ocio_env);
-
-bool colormanage_config_reload(Main *bmain);
 
 const ColorSpace *colormanage_colorspace_get_named(const char *name);
 const ColorSpace *colormanage_colorspace_get_roled(int role);

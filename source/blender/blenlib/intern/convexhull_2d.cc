@@ -745,7 +745,7 @@ static float convexhull_2d_compute_extent_on_axis(const float (*points_hull)[2],
   return value_best;
 }
 
-static float2 convexhull_aabb_fit_hull_2d(const float (*points_hull)[2], int points_hull_num)
+static float convexhull_aabb_fit_hull_2d(const float (*points_hull)[2], int points_hull_num)
 {
   float area_best = std::numeric_limits<float>::max();
   float2 sincos_best = {0.0f, 1.0f}; /* Track the best angle as a unit vector, delaying `atan2`. */
@@ -790,6 +790,10 @@ static float2 convexhull_aabb_fit_hull_2d(const float (*points_hull)[2], int poi
     convexhull_2d_angle_iter_step(hull_iter);
   }
 
+  const float angle = (area_best != std::numeric_limits<float>::max()) ?
+                          atan2(sincos_best[0], sincos_best[1]) :
+                          0.0f;
+
 #if defined(USE_BRUTE_FORCE_ASSERT) && !defined(NDEBUG)
   {
     /* Ensure the optimized result matches the brute-force version. */
@@ -801,14 +805,14 @@ static float2 convexhull_aabb_fit_hull_2d(const float (*points_hull)[2], int poi
   }
 #endif
 
-  return sincos_best;
+  return angle;
 }
 
-float2 BLI_convexhull_aabb_fit_points_2d_as_sincos(Span<float2> points)
+float BLI_convexhull_aabb_fit_points_2d(Span<float2> points)
 {
   const int points_num = int(points.size());
   BLI_assert(points_num >= 0);
-  float2 sincos = {0.0f, 1.0f};
+  float angle = 0.0f;
 
   int *index_map = MEM_new_array_uninitialized<int>(size_t(points_num), __func__);
 
@@ -821,19 +825,13 @@ float2 BLI_convexhull_aabb_fit_points_2d_as_sincos(Span<float2> points)
       copy_v2_v2(points_hull[j], points[index_map[j]]);
     }
 
-    sincos = convexhull_aabb_fit_hull_2d(points_hull, points_hull_num);
+    angle = convexhull_aabb_fit_hull_2d(points_hull, points_hull_num);
     MEM_delete(points_hull);
   }
 
   MEM_delete(index_map);
 
-  return sincos;
-}
-
-float BLI_convexhull_aabb_fit_points_2d(Span<float2> points)
-{
-  const float2 sincos = BLI_convexhull_aabb_fit_points_2d_as_sincos(points);
-  return atan2(sincos[0], sincos[1]);
+  return angle;
 }
 
 /** \} */

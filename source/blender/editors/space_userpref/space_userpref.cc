@@ -252,7 +252,11 @@ bUserAssetLibrary *ED_userpref_asset_library_new(const bContext *C,
   }
 
   /* Activate new library in the UI for further setup. */
-  ED_userpref_asset_library_active_set(*new_library);
+  if (const std::optional<int> new_active_idx =
+          userpref_ui_asset_libraries_index_from_user_library(*new_library))
+  {
+    U.active_asset_library = *new_active_idx;
+  }
 
   if (new_library->flag & ASSET_LIBRARY_USE_REMOTE_URL) {
     blender::asset_system::remote_library_request_download(*new_library);
@@ -513,10 +517,7 @@ static void userpref_blend_read_data(BlendDataReader * /*reader*/, SpaceLink *sl
 
 static void userpref_space_blend_write(BlendWriter *writer, SpaceLink *sl)
 {
-  writer->write_struct_cast<SpaceUserPref>(sl,
-                                           [](BlendStructWriter<SpaceUserPref> &struct_writer) {
-                                             struct_writer.shallow_data.runtime = nullptr;
-                                           });
+  writer->write_struct_cast<SpaceUserPref>(sl);
 }
 
 void ED_spacetype_userpref()

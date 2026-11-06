@@ -88,7 +88,6 @@
 #include "IMB_imbuf_types.hh"
 
 #include "ANIM_keyframing.hh"
-#include "ANIM_keyingsets.hh"
 
 #include "view3d_intern.hh" /* own include */
 
@@ -410,7 +409,6 @@ static void drawviewborder(Scene *scene, Depsgraph *depsgraph, ARegion *region, 
   y2 = viewborder.ymax;
 
   const float roll = rv3d->camroll;
-  const bool is_flipped_x = (rv3d->rflag & RV3D_FLIP_X) != 0;
   GPU_line_width(1.0f);
 
   /* apply offsets so the real 3D camera shows through */
@@ -433,17 +431,12 @@ static void drawviewborder(Scene *scene, Depsgraph *depsgraph, ARegion *region, 
     immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
 
     /* Apply roll. */
-    if (roll != 0.0f || is_flipped_x) {
+    if (roll != 0.0f) {
       GPU_matrix_push();
       const int center_x = region->winx / 2;
       const int center_y = region->winy / 2;
       GPU_matrix_translate_2f(center_x, center_y);
-      if (is_flipped_x) {
-        GPU_matrix_scale_2f(-1.0f, 1.0f);
-      }
-      if (roll != 0.0f) {
-        GPU_matrix_rotate_2d(RAD2DEG(roll));
-      }
+      GPU_matrix_rotate_2d(RAD2DEG(rv3d->camroll));
       GPU_matrix_translate_2f(-center_x, -center_y);
     }
 
@@ -504,7 +497,7 @@ static void drawviewborder(Scene *scene, Depsgraph *depsgraph, ARegion *region, 
 
   /* When overlays are disabled, only show camera outline & passepartout. */
   if (v3d->flag2 & V3D_HIDE_OVERLAYS || !(v3d->flag2 & V3D_SHOW_CAMERA_GUIDES)) {
-    if (roll != 0.0f || is_flipped_x) {
+    if (roll != 0.0f) {
       GPU_matrix_pop();
     }
     return;
@@ -635,7 +628,7 @@ static void drawviewborder(Scene *scene, Depsgraph *depsgraph, ARegion *region, 
                      sizeof(v3d->camera->id.name) - 2);
   }
 
-  if (roll != 0.0f || is_flipped_x) {
+  if (roll != 0.0f) {
     GPU_matrix_pop();
   }
 }
@@ -1146,9 +1139,13 @@ static const char *view3d_get_name(View3D *v3d, RegionView3D *rv3d)
 static void draw_viewport_name(ARegion *region, View3D *v3d, int xoffset, int *yoffset)
 {
   RegionView3D *rv3d = static_cast<RegionView3D *>(region->regiondata);
-  /* Append text directly, the inline buffer avoids allocating in practice. */
-  fmt::memory_buffer name;
-  name.append(StringRef(view3d_get_name(v3d, rv3d)));
+  const char *name = view3d_get_name(v3d, rv3d);
+  const char *name_array[3] = {name, nullptr, nullptr};
+  int name_array_len = 1;
+
+  /* 6 is the maximum size of the axis roll text. */
+  /* increase size for unicode languages (Chinese in UTF8...). */
+  char tmpstr[96 + 6];
 
   if (RV3D_VIEW_IS_AXIS(rv3d->view) && (rv3d->view_axis_roll != RV3D_VIEW_AXIS_ROLL_0)) {
     const char *axis_roll;
@@ -1163,51 +1160,24 @@ static void draw_viewport_name(ARegion *region, View3D *v3d, int xoffset, int *y
         axis_roll = " -90\xC2\xB0";
         break;
     }
-    name.append(StringRef(axis_roll));
+    name_array[name_array_len++] = axis_roll;
   }
 
   if (v3d->localvd) {
-    name.append(StringRef(IFACE_(" (Local)")));
+    name_array[name_array_len++] = IFACE_(" (Local)");
   }
 
   /* Indicate that clipping region is enabled. */
   if (RV3D_CLIPPING_ENABLED(v3d, rv3d)) {
-    name.append(StringRef(IFACE_(" (Clipped)")));
+    name_array[name_array_len++] = IFACE_(" (Clipped)");
   }
 
-  /* Indicate that the view is flipped. */
-  if (rv3d->persp == RV3D_CAMOB) {
-    const eRegionView3D_ViewFlipRoll flip_roll = ED_view3d_effective_flip_axis(rv3d);
-
-    switch (flip_roll) {
-      case eRegionView3D_ViewFlipRoll::FlipOther:
-        name.append(StringRef(IFACE_(" (Flipped) (Rolled)")));
-        break;
-      case eRegionView3D_ViewFlipRoll::FlipX:
-        name.append(StringRef(IFACE_(" (Flipped X)")));
-        break;
-      case eRegionView3D_ViewFlipRoll::FlipY:
-        name.append(StringRef(IFACE_(" (Flipped Y)")));
-        break;
-      case eRegionView3D_ViewFlipRoll::Roll0:
-        break;
-      case eRegionView3D_ViewFlipRoll::Roll90:
-        name.append(StringRef(IFACE_(" (90\xC2\xB0)")));
-        break;
-      case eRegionView3D_ViewFlipRoll::Roll180:
-        name.append(StringRef(IFACE_(" (180\xC2\xB0)")));
-        break;
-      case eRegionView3D_ViewFlipRoll::Roll270:
-        name.append(StringRef(IFACE_(" (-90\xC2\xB0)")));
-        break;
-      case eRegionView3D_ViewFlipRoll::RollOther:
-        name.append(StringRef(IFACE_(" (Rolled)")));
-        break;
-    }
+  if (name_array_len > 1) {
+    BLI_string_join_array(tmpstr, sizeof(tmpstr), name_array, name_array_len);
+    name = tmpstr;
   }
-
   *yoffset -= VIEW3D_OVERLAY_LINEHEIGHT;
-  BLF_draw_default(xoffset, *yoffset, 0.0f, name.data(), name.size());
+  BLF_draw_default(xoffset, *yoffset, 0.0f, name, sizeof(tmpstr));
 }
 
 static bool is_grease_pencil_with_layer_keyframe(const Object &ob)
@@ -1228,7 +1198,7 @@ static bool is_grease_pencil_with_layer_keyframe(const Object &ob)
 
 /**
  * Draw info beside axes in top-left corner:
- * collection, object name, bone name (if available).
+ * frame-number, collection, object name, bone name (if available), marker name (if available).
  */
 static void draw_selected_name(const Main &bmain,
                                const View3D *v3d,
@@ -1241,40 +1211,53 @@ static void draw_selected_name(const Main &bmain,
   const int cfra = scene->r.cfra;
   const char *msg_pin = " (Soloed)";
   const char *msg_sep = " : ";
-  /* Breadcrumbs separator (right angle chevron). */
-  const char *msg_sep_ob = "  \u203A  ";
+  const char *msg_space = " ";
 
   const int font_id = BLF_default();
 
   const char *info_array[16];
   int i = 0;
 
+  struct {
+    char frame[16];
+  } info_buffers;
+
   /* Info can contain:
+   * - 1 frame number `(7 + 2)`.
    * - 1 collection name `(MAX_ID_NAME - 2 + 3)`.
    * - 1 object name `(MAX_ID_NAME - 2)`.
    * - 1 object data name `(MAX_ID_NAME - 2)`.
    * - 2 non-ID data names (bones, shape-keys...) `(MAX_NAME * 2)`.
-   * - 2 BREAD_CRUMB_SEPARATOR(s) `(10)`.
+   * - 2 BREAD_CRUMB_SEPARATOR(s) `(6)`.
    * - 1 SHAPE_KEY_PINNED marker and a trailing '\0' `(9+1)` - translated, so give some room!
+   * - 1 marker name `(MAX_NAME + 3)`.
    */
+
+  SNPRINTF_UTF8(info_buffers.frame, "(%d)", cfra);
+  info_array[i++] = info_buffers.frame;
 
   if ((ob == nullptr) || (ob->mode == OB_MODE_OBJECT)) {
     BKE_view_layer_synced_ensure(bmain, scene, view_layer);
     LayerCollection *layer_collection = BKE_view_layer_active_collection_get(view_layer);
+    info_array[i++] = msg_space;
     info_array[i++] = BKE_collection_ui_name_get(layer_collection->collection);
     if (ob != nullptr) {
-      info_array[i++] = " | ";
+      info_array[i++] = " |";
     }
   }
 
+  /* get name of marker on current frame (if available) */
+  const char *markern = BKE_scene_find_marker_name(scene, cfra);
+
   /* check if there is an object */
   if (ob) {
+    info_array[i++] = msg_space;
     info_array[i++] = ob->id.name + 2;
 
     /* Show object data name when not in object mode. */
     if (ob->mode != OB_MODE_OBJECT) {
       if (const ID *data_id = static_cast<const ID *>(ob->data)) {
-        info_array[i++] = msg_sep_ob;
+        info_array[i++] = " | ";
         info_array[i++] = data_id->name + 2;
       }
     }
@@ -1286,7 +1269,7 @@ static void draw_selected_name(const Main &bmain,
       /* show name of active bone too (if possible) */
       if (arm->edbo) {
         if (arm->act_edbone) {
-          info_array[i++] = msg_sep_ob;
+          info_array[i++] = msg_sep;
           info_array[i++] = arm->act_edbone->name;
         }
       }
@@ -1294,7 +1277,7 @@ static void draw_selected_name(const Main &bmain,
         if (arm->act_bone) {
 
           if (ANIM_bonecoll_is_visible_actbone(arm)) {
-            info_array[i++] = msg_sep_ob;
+            info_array[i++] = msg_sep;
             info_array[i++] = arm->act_bone->name;
           }
         }
@@ -1309,7 +1292,7 @@ static void draw_selected_name(const Main &bmain,
           bArmature *arm = id_cast<bArmature *>(armobj->data);
           if (arm->act_bone) {
             if (ANIM_bonecoll_is_visible_actbone(arm)) {
-              info_array[i++] = msg_sep_ob;
+              info_array[i++] = msg_sep;
               info_array[i++] = arm->act_bone->name;
             }
           }
@@ -1341,6 +1324,12 @@ static void draw_selected_name(const Main &bmain,
     }
   }
 
+  if (markern) {
+    info_array[i++] = " <";
+    info_array[i++] = markern;
+    info_array[i++] = ">";
+  }
+
   if (v3d->flag2 & V3D_SHOW_VIEWER) {
     if (!v3d->viewer_path.path.is_empty()) {
       info_array[i++] = IFACE_(" (Viewer)");
@@ -1358,94 +1347,6 @@ static void draw_selected_name(const Main &bmain,
 
   *yoffset -= VIEW3D_OVERLAY_LINEHEIGHT;
   BLF_draw_default(xoffset, *yoffset, 0.0f, info, sizeof(info));
-}
-
-static float4 get_low_fps_color()
-{
-  float col_alert[4];
-  ui::theme::get_color_4fv(TH_REDALERT, col_alert);
-
-  /* Tint the text color with red alert, using the red alert alpha as blend factor. */
-  ui::theme::get_color_blend_3f(TH_TEXT_HI, TH_REDALERT, col_alert[3], col_alert);
-  col_alert[3] = 1.0f;
-
-  return col_alert;
-}
-
-static void get_fps_string(const Scene *scene, char *printable, const size_t printable_size)
-{
-  SceneFPS_State state;
-  if (!ED_scene_fps_average_calc(scene, &state)) {
-    return;
-  }
-
-  bool show_fractional = state.fps_target_is_fractional;
-
-  const int font_id = BLF_default();
-
-  /* Is this more than half a frame behind? */
-  if (state.fps_average + 0.5f < state.fps_target) {
-    /* Always show fractional when under performing. */
-    show_fractional = true;
-    float4 alert_rgb = get_low_fps_color();
-    BLF_color4fv(font_id, alert_rgb);
-  }
-
-  if (show_fractional) {
-    BLI_snprintf_utf8(printable, printable_size, ("%.2f fps"), state.fps_average);
-  }
-  else {
-    BLI_snprintf_utf8(printable, printable_size, ("%i fps"), int(state.fps_average + 0.5f));
-  }
-}
-
-/**
- * Draw animation related info:
- * frame-number, marker name (if any), active keying set (if any), and frames per second.
- */
-static void draw_frame_info(Scene *scene, int xoffset, int *yoffset)
-{
-  const int cfra = scene->r.cfra;
-  const char *msg_sep = " | ";
-
-  /* Info can contain:
-   * - 1 frame number `(7)`.
-   * - 1 fps `(32 + 3)`.
-   * - 1 marker name `(MAX_NAME + 3)`.
-   * - 1 active keying set name `(MAX_NAME + 3)`.
-   */
-
-  std::string info = std::to_string(cfra);
-
-  /* 8 4-bytes chars (complex writing systems like Devanagari in UTF8 encoding) */
-  char printable[32];
-  printable[0] = '\0';
-  get_fps_string(scene, printable, sizeof(printable));
-
-  if (U.uiflag & USER_SHOW_FPS && printable[0] != '\0') {
-    info += msg_sep;
-    info += printable;
-  }
-  else {
-    /* Draw marker name on current frame, if any. */
-    const char *markern = BKE_scene_find_marker_name(scene, cfra);
-
-    if (markern) {
-      info += msg_sep;
-      info += markern;
-    }
-
-    /* Draw scene active keying set name, if set. */
-    KeyingSet *active_ks = animrig::scene_get_active_keyingset(scene);
-
-    if (active_ks) {
-      info += msg_sep;
-      info += active_ks->name;
-    }
-  }
-
-  *yoffset -= VIEW3D_OVERLAY_LINEHEIGHT;
-  BLF_draw_default(xoffset, *yoffset, 0.0f, info.c_str(), info.size());
 }
 
 static void draw_grid_unit_name(
@@ -1467,6 +1368,19 @@ static void draw_grid_unit_name(
       BLF_draw_default(xoffset, *yoffset, 0.0f, numstr[0] ? numstr : grid_unit, sizeof(numstr));
     }
   }
+}
+
+static float4 get_low_fps_color()
+{
+  float alert_rgb[4];
+  float alert_hsv[4];
+  ui::theme::get_color_4fv(TH_REDALERT, alert_rgb);
+  /* Brighten since we favor dark shadows to increase contrast.
+   * This gives similar results to the old hardcoded 225, 36, 36. */
+  rgb_to_hsv_v(alert_rgb, alert_hsv);
+  alert_hsv[2] = 1.0;
+  hsv_to_rgb_v(alert_hsv, alert_rgb);
+  return alert_rgb;
 }
 
 static void draw_performance_stats(Depsgraph *depsgraph,
@@ -1528,6 +1442,7 @@ void view3d_draw_region_info(const bContext *C, ARegion *region)
   RegionView3D *rv3d = static_cast<RegionView3D *>(region->regiondata);
   View3D *v3d = CTX_wm_view3d(C);
   Scene *scene = CTX_data_scene(C);
+  wmWindowManager *wm = CTX_wm_manager(C);
   Main *bmain = CTX_data_main(C);
   ViewLayer *view_layer = CTX_data_view_layer(C);
   Depsgraph *depsgraph = CTX_data_depsgraph_pointer(C);
@@ -1611,13 +1526,12 @@ void view3d_draw_region_info(const bContext *C, ARegion *region)
                       region->runtime->quadview_index == bke::ARegionQuadviewIndex::TopLeft);
 
     if ((v3d->overlay.flag & V3D_OVERLAY_HIDE_TEXT) == 0) {
-      if (U.uiflag & USER_SHOW_VIEWPORTNAME) {
-        draw_viewport_name(region, v3d, xoffset, &yoffset);
+      if ((U.uiflag & USER_SHOW_FPS) && ED_screen_animation_no_scrub(wm) && region_ok) {
+        ED_scene_draw_fps(scene, xoffset, &yoffset);
+        BLF_color4fv(font_id, text_color);
       }
-
-      if (v3d->gridflag & (V3D_SHOW_FLOOR | V3D_SHOW_X | V3D_SHOW_Y | V3D_SHOW_Z) && region_ok) {
-        /* Draw current unit scale below the viewport name. */
-        draw_grid_unit_name(scene, region, v3d, xoffset, &yoffset);
+      else if (U.uiflag & USER_SHOW_VIEWPORTNAME) {
+        draw_viewport_name(region, v3d, xoffset, &yoffset);
       }
 
       if (U.uiflag & USER_DRAWVIEWINFO && region_ok) {
@@ -1625,10 +1539,11 @@ void view3d_draw_region_info(const bContext *C, ARegion *region)
         Object *ob = BKE_view_layer_active_object_get(view_layer);
         draw_selected_name(*bmain, v3d, scene, view_layer, ob, xoffset, &yoffset);
         BLF_color4fv(font_id, text_color);
+      }
 
-        /* Draw current frame, marker, and active keying set, if any. */
-        draw_frame_info(scene, xoffset, &yoffset);
-        BLF_color4fv(font_id, text_color);
+      if (v3d->gridflag & (V3D_SHOW_FLOOR | V3D_SHOW_X | V3D_SHOW_Y | V3D_SHOW_Z) && region_ok) {
+        /* draw below the viewport name */
+        draw_grid_unit_name(scene, region, v3d, xoffset, &yoffset);
       }
 
       if (region_ok) {
@@ -1880,15 +1795,6 @@ void ED_view3d_draw_offscreen(Depsgraph *depsgraph,
   G.f &= ~G_FLAG_RENDER_VIEWPORT;
 }
 
-static void view3d_draw_offscreen_set_overlay_defaults(View3D &v3d)
-{
-  /* When rendering gpencil objects this opacity is used to mix vertex colors in. */
-  v3d.overlay.gpencil_vertex_paint_opacity = 1.0f;
-  /* Initialize wire-frame properties to the default so it renders properly. */
-  v3d.overlay.wireframe_opacity = 1.0f;
-  v3d.overlay.wireframe_threshold = 0.5f;
-}
-
 void ED_view3d_draw_offscreen_simple(Depsgraph *depsgraph,
                                      Scene *scene,
                                      View3DShading *shading_override,
@@ -1928,7 +1834,6 @@ void ED_view3d_draw_offscreen_simple(Depsgraph *depsgraph,
     source_shading_settings = shading_override;
   }
   memcpy(&v3d.shading, source_shading_settings, sizeof(View3DShading));
-  view3d_draw_offscreen_set_overlay_defaults(v3d);
   v3d.shading.type = drawtype;
 
   if (shading_override) {
@@ -2197,8 +2102,6 @@ ImBuf *ED_view3d_draw_offscreen_imbuf_simple(Depsgraph *depsgraph,
                                              char err_out[256])
 {
   View3D v3d = dna::shallow_zero_initialize();
-  view3d_draw_offscreen_set_overlay_defaults(v3d);
-
   ARegion region = {nullptr};
   bke::ARegionRuntime region_runtime{};
   region.runtime = &region_runtime;
@@ -2241,6 +2144,15 @@ ImBuf *ED_view3d_draw_offscreen_imbuf_simple(Depsgraph *depsgraph,
   v3d.shading.type = drawtype;
 
   v3d.flag2 = V3D_HIDE_OVERLAYS;
+  /* HACK: When rendering gpencil objects this opacity is used to mix vertex colors in when not in
+   * render mode (e.g. in the sequencer). */
+  v3d.overlay.gpencil_vertex_paint_opacity = 1.0f;
+
+  /* Also initialize wire-frame properties to the default so it renders properly in sequencer.
+   * Should find some way to use the viewport's current opacity and threshold,
+   * but this is a start. */
+  v3d.overlay.wireframe_opacity = 1.0f;
+  v3d.overlay.wireframe_threshold = 0.5f;
 
   if (draw_flags & V3D_OFSDRAW_SHOW_ANNOTATION) {
     v3d.flag2 |= V3D_SHOW_ANNOTATION;
@@ -2787,7 +2699,25 @@ void ED_scene_draw_fps(const Scene *scene, int xoffset, int *yoffset)
   /* 8 4-bytes chars (complex writing systems like Devanagari in UTF8 encoding) */
   char printable[32];
   printable[0] = '\0';
-  get_fps_string(scene, printable, sizeof(printable));
+
+  bool show_fractional = state.fps_target_is_fractional;
+
+  const int font_id = BLF_default();
+
+  /* Is this more than half a frame behind? */
+  if (state.fps_average + 0.5f < state.fps_target) {
+    /* Always show fractional when under performing. */
+    show_fractional = true;
+    float4 alert_rgb = get_low_fps_color();
+    BLF_color4fv(font_id, alert_rgb);
+  }
+
+  if (show_fractional) {
+    SNPRINTF_UTF8(printable, IFACE_("fps: %.2f"), state.fps_average);
+  }
+  else {
+    SNPRINTF_UTF8(printable, IFACE_("fps: %i"), int(state.fps_average + 0.5f));
+  }
 
   BLF_draw_default(xoffset, *yoffset, 0.0f, printable, sizeof(printable));
 }

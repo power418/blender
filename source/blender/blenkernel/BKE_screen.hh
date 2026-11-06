@@ -57,6 +57,7 @@ struct Menu;
 struct Panel;
 struct PanelType;
 struct PanelCategoryDyn;
+struct RegionDrawCB;
 struct Scene;
 struct ScrArea;
 struct ScrAreaMap;
@@ -78,6 +79,7 @@ struct wmNotifier;
 struct wmTimer;
 struct wmWindow;
 struct wmWindowManager;
+struct RegionDrawCB;
 struct PanelType;
 struct HeaderType;
 struct ARegionType;
@@ -126,12 +128,6 @@ struct SpaceType {
 
   /** Refresh context, called after file-reads, #ED_area_tag_refresh(). */
   void (*refresh)(const bContext *C, ScrArea *area);
-
-  /** Called before the regions of this area are redrawn. */
-  void (*draw_pre)(const bContext *C, ScrArea *area);
-
-  /** Called after the regions of this area are redrawn. */
-  void (*draw_post)(const bContext *C, ScrArea *area);
 
   /** After a spacedata copy, an init should result in exact same situation. */
   SpaceLink *(*duplicate)(SpaceLink *sl);
@@ -289,56 +285,6 @@ struct ARegionIMECursor {
   rcti rect = {0, 0, 0, 0};
   /** The size the editor draws text at, so the preview matches it. */
   int font_size = 0;
-};
-
-/** Enum for Action Zone Edges. Which edge of area is action zone. */
-enum AZEdge : int {
-  /** Region located on the left, _right_ edge is action zone.
-   * Region minimized to the top left */
-  AE_RIGHT_TO_TOPLEFT,
-  /** Region located on the right, _left_ edge is action zone.
-   * Region minimized to the top right */
-  AE_LEFT_TO_TOPRIGHT,
-  /** Region located at the bottom, _top_ edge is action zone.
-   * Region minimized to the bottom right */
-  AE_TOP_TO_BOTTOMRIGHT,
-  /** Region located at the top, _bottom_ edge is action zone.
-   * Region minimized to the top left */
-  AE_BOTTOM_TO_TOPLEFT,
-};
-
-enum AZScrollDirection {
-  AZ_SCROLL_VERT,
-  AZ_SCROLL_HOR,
-};
-
-/** For editing areas/regions. */
-struct AZone {
-  AZone *next, *prev;
-  ARegion *region;
-  int type;
-
-  union {
-    /** Region-AZone, which of the edges (only for #AZONE_REGION). */
-    AZEdge edge;
-    AZScrollDirection direction;
-  };
-  /** For drawing. */
-  short x1, y1, x2, y2;
-  /** For clip. */
-  rcti rect;
-  /** For fade in/out. */
-  float alpha;
-};
-
-/** Custom drawing callback registered for a region type, see #ED_region_draw_cb_activate. */
-struct RegionDrawCB {
-  RegionDrawCB *next, *prev;
-
-  void (*draw)(const bContext *, ARegion *, void *);
-  void *customdata;
-
-  int type;
 };
 
 struct ARegionType {

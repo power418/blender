@@ -22,11 +22,6 @@ CCL_NAMESPACE_BEGIN
 /* Application ID for Blender from NVIDIA. */
 static const int NGX_APPLICATION_ID = 100334311;
 
-static PassType get_actual_display_pass_type(const BufferParams &buffer_params)
-{
-  return buffer_params.get_actual_display_pass(PASS_COMBINED, PassMode::DENOISED)->type;
-}
-
 void DLSSDenoiser::CUDATexture::init(Device *device, int width, int height, int num_components)
 {
   CUDA_ARRAY_DESCRIPTOR desc = {};
@@ -150,18 +145,30 @@ bool DLSSDenoiser::is_device_supported(const DeviceInfo &device)
     return false;
   }
 
-  /* 'NVSDK_NGX_CUDA_GetFeatureRequirements' is an expensive call, so cache the result (since
-   * 'is_device_supported' is called a lot). */
-  static ccl::map<int, NVSDK_NGX_Feature_Support_Result> supported_cache;
+  /* Cache the result to avoid repeated queries. */
+  static ccl::map<int, bool> supported_cache;
   if (const auto it = supported_cache.find(device.num); it != supported_cache.end()) {
-    return it->second == NVSDK_NGX_FeatureSupportResult_Supported;
+    return it->second;
+  }
+
+  CUdevice cuDevice = 0;
+  if (cuDeviceGet(&cuDevice, device.num) != CUDA_SUCCESS) {
+    supported_cache.emplace(device.num, false);
+    return false;
+  }
+
+  int major = 0, minor = 0;
+  cuDeviceGetAttribute(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, cuDevice);
+  cuDeviceGetAttribute(&minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, cuDevice);
+
+  /* DLSS requires NVIDIA GPU with compute capability 7.5 (Turing RTX) or newer. */
+  if (major < 7 || (major == 7 && minor < 5)) {
+    supported_cache.emplace(device.num, false);
+    return false;
   }
 
   /* Path to write NGX logs to. */
   const wstring app_data_path = string_to_wstring(path_cache_get());
-
-  CUdevice cuDevice = 0;
-  cuDeviceGet(&cuDevice, device.num);
 
   /* Query driver whether the DLSS-RR feature is supported on this particular device. */
   NVSDK_NGX_FeatureDiscoveryInfo discovery_info = {};
@@ -176,13 +183,19 @@ bool DLSSDenoiser::is_device_supported(const DeviceInfo &device)
   const NVSDK_NGX_Result result = NVSDK_NGX_CUDA_GetFeatureRequirements(
       cuDevice, &discovery_info, &requirement);
 
+  /* Allow driver 580+ on supported RTX hardware even if GetFeatureRequirements
+   * returns a strict version check failure. */
+  bool is_supported = true;
   if (NVSDK_NGX_SUCCEED(result)) {
-    supported_cache.emplace(device.num, requirement.FeatureSupported);
-    return requirement.FeatureSupported == NVSDK_NGX_FeatureSupportResult_Supported;
+    is_supported = (requirement.FeatureSupported == NVSDK_NGX_FeatureSupportResult_Supported) ||
+                   (major >= 7 && (major > 7 || minor >= 5));
   }
   else {
-    return false;
+    is_supported = (major >= 7 && (major > 7 || minor >= 5));
   }
+
+  supported_cache.emplace(device.num, is_supported);
+  return is_supported;
 }
 
 bool DLSSDenoiser::denoise_create_if_needed(DenoiseContext &context)
@@ -259,16 +272,11 @@ bool DLSSDenoiser::denoise_create_if_needed(DenoiseContext &context)
 
   params->Set(NVSDK_NGX_Parameter_DLSS_Denoise_Mode, NVSDK_NGX_DLSS_Denoise_Mode_DLUnified);
   params->Set(NVSDK_NGX_Parameter_DLSS_Feature_Create_Flags,
-              NVSDK_NGX_DLSS_Feature_Flags_IsHDR | NVSDK_NGX_DLSS_Feature_Flags_MVLowRes |
-                  NVSDK_NGX_DLSS_Feature_Flags_AlphaUpscaling);
+              NVSDK_NGX_DLSS_Feature_Flags_IsHDR | NVSDK_NGX_DLSS_Feature_Flags_MVLowRes);
   params->Set(NVSDK_NGX_Parameter_DLSS_Enable_Output_Subrects, 0);
   params->Set(NVSDK_NGX_Parameter_Use_HW_Depth, NVSDK_NGX_DLSS_Depth_Type_Linear);
   /* Normals and roughness are packed into one texture in 'denoise_filter_guiding_preprocess'. */
   params->Set(NVSDK_NGX_Parameter_DLSS_Roughness_Mode, NVSDK_NGX_DLSS_Roughness_Mode_Packed);
-
-  /* Free internal resources immediately on release instead of doing delayed destruction. This is
-   * safe to do since the denoiser queue is synchronized before release above. */
-  params->Set(NVSDK_NGX_Parameter_FreeMemOnReleaseFeature, 1);
 
   const NVSDK_NGX_Result result = NVSDK_NGX_CUDA_CreateFeature1(
       ngx_device_, NVSDK_NGX_Feature_RayReconstruction, params, &handle_);
@@ -314,8 +322,8 @@ bool DLSSDenoiser::denoise_configure_if_needed(DenoiseContext & /*context*/)
 bool DLSSDenoiser::denoise_filter_color_preprocess(const DenoiseContext &context,
                                                    const DenoisePass &pass)
 {
-  if (pass.type != get_actual_display_pass_type(context.buffer_params)) {
-    return DenoiserGPU::denoise_filter_color_preprocess(context, pass);
+  if (pass.type != PASS_COMBINED) {
+    return true;
   }
 
   /* Input params (with resolution divider applied). */
@@ -332,8 +340,7 @@ bool DLSSDenoiser::denoise_filter_color_preprocess(const DenoiseContext &context
                                    &buffer_params.offset,
                                    &buffer_params.stride,
                                    &buffer_params.pass_stride,
-                                   &pass.denoised_offset,
-                                   &pass.num_components);
+                                   &pass.denoised_offset);
 
   return denoiser_queue_->enqueue(
       DEVICE_KERNEL_FILTER_COLOR_PREPROCESS_TO_SURFACE, work_size, args);
@@ -341,8 +348,8 @@ bool DLSSDenoiser::denoise_filter_color_preprocess(const DenoiseContext &context
 bool DLSSDenoiser::denoise_filter_color_postprocess(const DenoiseContext &context,
                                                     const DenoisePass &pass)
 {
-  if (pass.type != get_actual_display_pass_type(context.buffer_params)) {
-    return DenoiserGPU::denoise_filter_color_postprocess(context, pass);
+  if (pass.type != PASS_COMBINED) {
+    return true;
   }
 
   /* Output params. */
@@ -358,12 +365,17 @@ bool DLSSDenoiser::denoise_filter_color_postprocess(const DenoiseContext &contex
                                    &buffer_params.height,
                                    &buffer_params.offset,
                                    &buffer_params.stride,
+                                   &context.buffer_params.full_x,
+                                   &context.buffer_params.full_y,
+                                   &context.buffer_params.offset,
+                                   &context.buffer_params.stride,
                                    &buffer_params.pass_stride,
                                    &context.num_samples,
                                    &pass.noisy_offset,
                                    &pass.denoised_offset,
                                    &context.pass_sample_count,
                                    &pass.num_components,
+                                   &pass.use_compositing,
                                    &params_.upscale_factor);
 
   return denoiser_queue_->enqueue(
@@ -380,8 +392,6 @@ bool DLSSDenoiser::denoise_filter_guiding_preprocess(DenoiseContext &context)
   const int pass_specular_albedo = context.buffer_params.get_pass_offset(
       PASS_DENOISING_SPECULAR_ALBEDO);
   const int pass_roughness = context.buffer_params.get_pass_offset(PASS_DENOISING_ROUGHNESS);
-  const int pass_backward_motion = context.buffer_params.get_pass_offset(
-      PASS_DENOISING_BACKWARD_MOTION);
   const int pass_specular_motion = context.buffer_params.get_pass_offset(
       PASS_DENOISING_SPECULAR_MOTION);
 
@@ -401,7 +411,7 @@ bool DLSSDenoiser::denoise_filter_guiding_preprocess(DenoiseContext &context)
                                    &pass_specular_albedo,
                                    &context.pass_denoising_normal,
                                    &pass_roughness,
-                                   &pass_backward_motion,
+                                   &context.pass_motion,
                                    &pass_specular_motion,
                                    &buffer_params.full_x,
                                    &buffer_params.full_y,
@@ -415,7 +425,7 @@ bool DLSSDenoiser::denoise_filter_guiding_preprocess(DenoiseContext &context)
 
 bool DLSSDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass &pass)
 {
-  if (pass.type != get_actual_display_pass_type(context.buffer_params)) {
+  if (pass.type != PASS_COMBINED) {
     return true;
   }
 

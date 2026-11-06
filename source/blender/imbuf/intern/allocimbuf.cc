@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <cstddef>
 
-#include "IMB_colormanagement.hh"
 #include "IMB_imbuf.hh"
 #include "IMB_imbuf_types.hh"
 #include "IMB_partial_update.hh"
@@ -53,7 +52,7 @@ bool imb_alloc_buffer(BufferType &buffer,
     return false;
   }
   buffer.data = static_cast<decltype(BufferType::data)>(data);
-  buffer.sharing_info = ImplicitSharingPtr<>(implicit_sharing::info_for_mem_free(buffer.data));
+  buffer.sharing_info = ImplicitSharingPtr<>(implicit_sharing::info_for_mem_free(data));
   return true;
 }
 
@@ -95,34 +94,12 @@ float *ImBuf::float_data_for_write()
   return const_cast<float *>(this->float_buffer.data);
 }
 
-const ColorSpace &ImBuf::byte_colorspace() const
-{
-  if (this->byte_buffer.colorspace) {
-    return *this->byte_buffer.colorspace;
-  }
-
-  return *IMB_colormanagement_space_get_named(
-      IMB_colormanagement_role_colorspace_name_get(COLOR_ROLE_DEFAULT_BYTE));
-}
-
-const ColorSpace &ImBuf::float_colorspace() const
-{
-  if (this->float_buffer.colorspace) {
-    return *this->float_buffer.colorspace;
-  }
-
-  return *IMB_colormanagement_space_get_named(
-      IMB_colormanagement_role_colorspace_name_get(COLOR_ROLE_SCENE_LINEAR));
-}
-
 void IMB_free_float_pixels(ImBuf *ibuf)
 {
   if (ibuf == nullptr) {
     return;
   }
-  /* Keep the colorspace, it's used when new pixels are assigned. */
-  ibuf->float_buffer.data = nullptr;
-  ibuf->float_buffer.sharing_info.reset();
+  ibuf->float_buffer = {};
 }
 
 void IMB_free_byte_pixels(ImBuf *ibuf)
@@ -130,9 +107,7 @@ void IMB_free_byte_pixels(ImBuf *ibuf)
   if (ibuf == nullptr) {
     return;
   }
-  /* Keep the colorspace, it's used when new pixels are assigned. */
-  ibuf->byte_buffer.data = nullptr;
-  ibuf->byte_buffer.sharing_info.reset();
+  ibuf->byte_buffer = {};
 }
 
 void IMB_free_all_data(ImBuf *ibuf)
@@ -203,7 +178,9 @@ bool IMB_alloc_float_pixels(ImBuf *ibuf, const uint channels, bool initialize_pi
     return false;
   }
 
-  IMB_free_float_pixels(ibuf);
+  if (ibuf->float_data()) {
+    IMB_free_float_pixels(ibuf);
+  }
 
   if (!imb_alloc_buffer(
           ibuf->float_buffer, ibuf->x, ibuf->y, channels, sizeof(float), initialize_pixels))
@@ -224,7 +201,7 @@ bool IMB_alloc_byte_pixels(ImBuf *ibuf, bool initialize_pixels)
     return false;
   }
 
-  IMB_free_byte_pixels(ibuf);
+  ibuf->byte_buffer = {};
 
   if (!imb_alloc_buffer(
           ibuf->byte_buffer, ibuf->x, ibuf->y, 4, sizeof(uint8_t), initialize_pixels))
@@ -237,7 +214,7 @@ bool IMB_alloc_byte_pixels(ImBuf *ibuf, bool initialize_pixels)
 
 void ImBuf::assign_byte_data(uint8_t *data)
 {
-  IMB_free_byte_pixels(this);
+  this->byte_buffer = {};
   if (data) {
     this->byte_buffer.data = data;
     this->byte_buffer.sharing_info = ImplicitSharingPtr<>(
@@ -247,7 +224,7 @@ void ImBuf::assign_byte_data(uint8_t *data)
 
 void ImBuf::assign_float_data(float *data)
 {
-  IMB_free_float_pixels(this);
+  this->float_buffer = {};
   if (data) {
     this->float_buffer.data = data;
     this->float_buffer.sharing_info = ImplicitSharingPtr<>(
@@ -299,7 +276,9 @@ void IMB_ensure_host_buffer(ImBuf *ibuf)
   GPU_memory_barrier(GPU_BARRIER_TEXTURE_UPDATE);
   float *output_buffer = static_cast<float *>(
       GPU_texture_read(ibuf->gpu.texture, GPU_DATA_FLOAT, 0));
+  const ColorSpace *float_colorspace = ibuf->float_buffer.colorspace;
   ibuf->assign_float_data(output_buffer);
+  ibuf->float_buffer.colorspace = float_colorspace;
 
   if (need_secondary_context) {
     IMB_deactivate_gpu_context();
@@ -391,7 +370,6 @@ bool IMB_initImBuf(ImBuf *ibuf, uint x, uint y, ImBufFlags flags)
   ibuf->channels = 4;
   /* IMB_DPI_DEFAULT -> pixels-per-meter. */
   ibuf->ppm[0] = ibuf->ppm[1] = IMB_DPI_DEFAULT / 0.0254;
-  ibuf->full_update_changeset_id = IMB_partial_update_changeset_id_next();
 
   const bool init_pixels = !flag_is_set(flags, ImBufFlags::UninitializedPixels);
 

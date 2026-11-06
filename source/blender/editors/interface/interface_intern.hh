@@ -27,9 +27,6 @@
 #include "UI_interface.hh"
 #include "UI_interface_layout.hh"
 #include "UI_resources.hh"
-
-#include "buttons/interface_label_markdown.hh"
-
 struct IconTextOverlay;
 namespace blender {
 
@@ -264,7 +261,7 @@ struct Button : NonMovable {
 
   /** Run an action when holding the button down. */
   ButtonHandleHoldFunc hold_func = nullptr;
-  std::string *hold_arg = nullptr;
+  void *hold_argN = nullptr;
 
   StringRef tip;
   ButtonToolTipFunc tip_func = nullptr;
@@ -434,7 +431,7 @@ struct ButtonNumberSlider : public Button {
 
 /** Derived struct for #ButtonType::Color */
 struct ButtonColor : public Button {
-  bool is_palette_color = false;
+  bool is_pallete_color = false;
   int palette_color_index = -1;
 };
 
@@ -499,19 +496,13 @@ struct ButtonSeparatorLine : public Button {
   bool is_vertical;
 };
 
-enum class ButtonLabelType {
-  Standard,
-  Multiline,
-  Markdown,
-};
-
 /** Derived struct for #ButtonType::Label. */
 struct ButtonLabel : public Button {
   float alpha_factor = 1.0f;
   /** When the button draws an icon, also draw a mono-colored border for it. */
   bool draw_icon_border = false;
 
-  ButtonLabelType label_type = ButtonLabelType::Standard;
+  bool is_multiline = false;
   /**
    * Wrap cache from last layout pass.
    * This is also referenced in the button owning #Block so it can be looked up and reused in
@@ -519,17 +510,9 @@ struct ButtonLabel : public Button {
    * copied/moved around.
    */
   std::shared_ptr<TextWrapCache> wrap_cache;
-  /** Layout cache for markdown labels. */
-  std::shared_ptr<MarkdownLayoutCache> markdown_cache;
   /** Maximum lines to be drawn in multi-line labels, 0 means all. */
   int max_lines = 0;
   FontStyleAlign text_align = UI_STYLE_TEXT_LEFT;
-};
-
-/** Derived struct for #ButtonType::Image. */
-struct ButtonImage : public Button {
-  /** Uniquely identifies the image, to reuse it from the previous redraw. */
-  std::string key;
 };
 
 /** Derived struct for #ButtonType::Scroll. */
@@ -705,7 +688,6 @@ struct Block {
 
   Vector<std::unique_ptr<Button>> buttons_ptrs;
   Vector<std::shared_ptr<TextWrapCache>> text_wrap_cache;
-  Vector<std::shared_ptr<MarkdownLayoutCache>> markdown_layout_cache;
 
   Panel *panel = nullptr;
   Block *oldblock = nullptr;
@@ -1093,8 +1075,6 @@ struct PopupBlockHandle {
   wmOperator *popup_op = nullptr;
   ScrArea *ctx_area = nullptr;
   ARegion *ctx_region = nullptr;
-  /** The popup region this popup was opened from (if any). */
-  ARegion *ctx_region_popup = nullptr;
 
   /* return values */
   int menuretval = 0;

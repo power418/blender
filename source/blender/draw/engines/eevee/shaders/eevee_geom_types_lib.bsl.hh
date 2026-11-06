@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include "draw_shader_shared.hh"
 #include "gpu_shader_compat.hh"
 
 struct MeshVertex {
@@ -28,8 +27,6 @@ struct CurvesPoint {
   int curve_id;
   int point_id;
   int curve_segment;
-  /* One bit per attribute (up to 16). */
-  uint is_point_attribute;
   /* Default derived from local position. */
   float3 orco_default;
 };
@@ -42,6 +39,4 @@ struct VolumePoint {
   float3 lP;
   /* Default derived from local position. */
   float3 orco_default;
-
-  float3 grid_co[DRW_GRID_PER_VOLUME_MAX];
 };

@@ -38,11 +38,6 @@ class InputObjectOperation : public NodeOperation {
     result.allocate_single_value();
     result.set_single_value(object);
   }
-
-  bool uses_asynchronous_execution() const override
-  {
-    return false;
-  }
 };
 
 static NodeOperation *get_compositor_operation(Context &context, const bNode &node)

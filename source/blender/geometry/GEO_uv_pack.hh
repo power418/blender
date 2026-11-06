@@ -146,8 +146,7 @@ class PackIsland {
   float2 pivot_;
   /** Half of the diagonal of the AABB. */
   float2 half_diagonal_;
-  /** The sine & cosine of the pre-rotation angle, to rotate without trigonometric functions. */
-  float2 pre_rotate_sincos_;
+  float pre_rotate_;
 
   void place_(float scale, UVPhi phi);
   void finalize_geometry_(const UVPackIsland_Params &params, MemArena *arena, Heap *heap);

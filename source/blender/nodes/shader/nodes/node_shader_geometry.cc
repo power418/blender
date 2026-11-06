@@ -40,8 +40,7 @@ static int node_shader_gpu_geometry(GPUMaterial *mat,
   const float val[4] = {0.0f, 0.0f, 0.0f, 0.0f};
   GPUNodeLink *orco_link = out[2].hasoutput ? GPU_attribute(mat, CD_ORCO, "") : GPU_constant(val);
 
-  const bool success = GPU_stack_link(
-      mat, node, "node_geometry", in, out, orco_link, GPU_kernel_globals(), GPU_shading_data());
+  const bool success = GPU_stack_link(mat, node, "node_geometry", in, out, orco_link);
 
   for (const auto [i, sock] : node->outputs.enumerate()) {
     node_shader_gpu_bump_tex_coord(mat, node, &out[i].link);

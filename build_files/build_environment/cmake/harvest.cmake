@@ -36,7 +36,10 @@ if(WIN32)
 else()
 
   function(harvest project from to)
-    set(pattern "${ARGV3}")
+    set(pattern "")
+    foreach(f ${ARGN})
+      set(pattern ${f})
+    endforeach()
 
     if(pattern STREQUAL "")
       get_filename_component(dirpath ${to} DIRECTORY)

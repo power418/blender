@@ -36,8 +36,7 @@ static int node_shader_gpu_background(GPUMaterial *mat,
                                       GPUNodeStack *in,
                                       GPUNodeStack *out)
 {
-  return GPU_stack_link(
-      mat, node, "node_background", in, out, GPU_kernel_globals(), GPU_shading_data());
+  return GPU_stack_link(mat, node, "node_background", in, out);
 }
 
 }  // namespace nodes::node_shader_background_cc

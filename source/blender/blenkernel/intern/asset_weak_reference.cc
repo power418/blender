@@ -15,8 +15,6 @@
 #include "AS_asset_library.hh"
 
 #include "BKE_asset.hh"
-#include "BKE_idtype.hh"
-#include "BKE_main.hh"
 
 #include "BLO_read_write.hh"
 
@@ -80,15 +78,15 @@ bool operator==(const AssetWeakReference &a, const AssetWeakReference &b)
   }
 
   if (a.asset_library_type == ASSET_LIBRARY_CUSTOM) {
-    const char *a_lib_identifier = a.asset_library_identifier ? a.asset_library_identifier : "";
-    const char *b_lib_identifier = b.asset_library_identifier ? b.asset_library_identifier : "";
-    if (BLI_path_cmp_normalized(a_lib_identifier, b_lib_identifier) != 0) {
+    const char *a_lib_idenfifier = a.asset_library_identifier ? a.asset_library_identifier : "";
+    const char *b_lib_idenfifier = b.asset_library_identifier ? b.asset_library_identifier : "";
+    if (BLI_path_cmp_normalized(a_lib_idenfifier, b_lib_idenfifier) != 0) {
       return false;
     }
   }
-  const char *a_asset_identifier = a.relative_asset_identifier ? a.relative_asset_identifier : "";
-  const char *b_asset_identifier = b.relative_asset_identifier ? b.relative_asset_identifier : "";
-  if (BLI_path_cmp_normalized(a_asset_identifier, b_asset_identifier) != 0) {
+  const char *a_asset_idenfifier = a.relative_asset_identifier ? a.relative_asset_identifier : "";
+  const char *b_asset_idenfifier = b.relative_asset_identifier ? b.relative_asset_identifier : "";
+  if (BLI_path_cmp_normalized(a_asset_idenfifier, b_asset_idenfifier) != 0) {
     return false;
   }
   return true;
@@ -126,19 +124,6 @@ void BKE_asset_weak_reference_read(BlendDataReader *reader, AssetWeakReference *
 {
   BLO_read_string(reader, &weak_ref->asset_library_identifier);
   BLO_read_string(reader, &weak_ref->relative_asset_identifier);
-}
-
-void BKE_asset_weak_reference_foreach_main(Main &bmain,
-                                           FunctionRef<void(AssetWeakReference &weak_ref)> fn)
-{
-  ID *id;
-  FOREACH_MAIN_ID_BEGIN (&bmain, id) {
-    const IDTypeInfo *id_type = BKE_idtype_get_info_from_id(id);
-    if (id_type->foreach_asset_weak_reference) {
-      id_type->foreach_asset_weak_reference(id, fn);
-    }
-  }
-  FOREACH_MAIN_ID_END;
 }
 
 void BKE_asset_catalog_path_list_free(ListBaseT<AssetCatalogPathLink> &catalog_path_list)

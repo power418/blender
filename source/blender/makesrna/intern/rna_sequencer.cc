@@ -118,27 +118,6 @@ const EnumPropertyItem rna_enum_strip_scale_method_items[] = {
     {0, nullptr, 0, nullptr, nullptr},
 };
 
-const EnumPropertyItem rna_enum_strip_overlap_mode_items[] = {
-    {SEQ_OVERLAP_RIPPLE,
-     "RIPPLE",
-     ICON_SEQ_OVERLAP_RIPPLE,
-     "Ripple",
-     "Push the strips that are in the way further along the timeline, keeping the spacing "
-     "between them intact"},
-    {SEQ_OVERLAP_OVERWRITE,
-     "OVERWRITE",
-     ICON_SEQ_OVERLAP_OVERWRITE,
-     "Overwrite",
-     "Replace the covered part of the strips that are in the way, trimming or splitting them"},
-    {SEQ_OVERLAP_SHUFFLE,
-     "SHUFFLE",
-     ICON_SEQ_OVERLAP_SHUFFLE,
-     "Shuffle",
-     "Move the transformed strips to the nearest free space, leaving every other strip where "
-     "it is"},
-    {0, nullptr, 0, nullptr, nullptr},
-};
-
 const EnumPropertyItem rna_enum_pitch_mode_items[] = {
     {ePitchMode::PITCH_MODE_SEMITONES,
      "SEMITONES",
@@ -479,20 +458,19 @@ static bool rna_SequenceEditor_strips_all_lookup_string(PointerRNA *ptr,
   return false;
 }
 
-static void rna_SequenceEditor_update_cache(Main * /*bmain*/, Scene * /*scene*/, PointerRNA *ptr)
+static void rna_SequenceEditor_update_cache(Main * /*bmain*/, Scene *scene, PointerRNA * /*ptr*/)
 {
-  Scene *scene = id_cast<Scene *>(ptr->owner_id);
   Editing *ed = scene->ed;
 
   seq::relations_free_imbuf(scene, &ed->seqbase, false);
-  seq::cache_cleanup(scene, seq::CacheCleanup::SourceImage | seq::CacheCleanup::FinalAndIntra);
+  seq::cache_cleanup(scene, seq::CacheCleanup::FinalAndIntra);
 }
 
 static void rna_SequenceEditor_cache_settings_changed(Main * /*bmain*/,
-                                                      Scene * /*scene*/,
-                                                      PointerRNA *ptr)
+                                                      Scene *scene,
+                                                      PointerRNA * /*ptr*/)
 {
-  seq::cache_settings_changed(id_cast<Scene *>(ptr->owner_id));
+  seq::cache_settings_changed(scene);
 }
 
 /* internal use */
@@ -611,7 +589,9 @@ static void do_strip_frame_change_update(Scene *scene, Strip *strip)
 {
   ListBaseT<Strip> *seqbase = seq::get_seqbase_by_strip(scene, strip);
 
-  seq::transform_shuffle_vertical(seqbase, {strip}, scene);
+  if (seq::transform_test_overlap(scene, seqbase, strip)) {
+    seq::transform_seqbase_shuffle(seqbase, strip, scene);
+  }
 
   if (strip->type == STRIP_TYPE_SOUND) {
     DEG_id_tag_update(&scene->id, ID_RECALC_SEQUENCER_STRIPS);
@@ -869,7 +849,9 @@ static void rna_Strip_channel_set(PointerRNA *ptr, int value)
   const int channel_delta = (value >= strip->channel) ? 1 : -1;
   strip->channel_set(value);
 
-  seq::transform_shuffle_vertical(seqbase, {strip}, scene, channel_delta);
+  if (seq::transform_test_overlap(scene, seqbase, strip)) {
+    seq::transform_seqbase_shuffle_ex(seqbase, strip, scene, channel_delta);
+  }
   seq::relations_invalidate_cache(scene, strip);
 }
 
@@ -2482,12 +2464,12 @@ static void rna_def_color_balance(BlenderRNA *brna)
   prop = RNA_def_property(srna, "exposure", PROP_FLOAT, PROP_NONE);
   RNA_def_property_range(prop, 0.0f, 1.0f);
   RNA_def_property_ui_text(prop, "Exposure", "");
-  RNA_def_property_update(prop, NC_SCENE | ND_SEQUENCER, "rna_StripColorBalance_update");
+  RNA_def_property_update(prop, NC_SCENE | ND_SEQUENCER, "rna_Strip_ColorBabalnce_update");
 
   prop = RNA_def_property(srna, "saturation", PROP_FLOAT, PROP_NONE);
   RNA_def_property_range(prop, 0.0f, 1.0f);
   RNA_def_property_ui_text(prop, "Saturation", "");
-  RNA_def_property_update(prop, NC_SCENE | ND_SEQUENCER, "rna_StripColorBalance_update");
+  RNA_def_property_update(prop, NC_SCENE | ND_SEQUENCER, "rna_Strip_ColorBabalnce_update");
 #  endif
 
   RNA_def_struct_path_func(srna, "rna_StripColorBalance_path");

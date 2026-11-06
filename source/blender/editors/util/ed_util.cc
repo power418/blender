@@ -260,7 +260,6 @@ void ED_editors_exit(Main *bmain, bool do_undo_system)
     if (object::editmode_free_ex(bmain, &ob)) {
       if (do_undo_system == false) {
         DEG_id_tag_update(&ob.id, ID_RECALC_TRANSFORM | ID_RECALC_GEOMETRY);
-        DEG_id_tag_update(ob.data, ID_RECALC_GEOMETRY);
       }
     }
   }
@@ -288,7 +287,7 @@ bool ED_editors_flush_edits_for_object_ex(Main *bmain, Object *ob, bool check_ne
       /* flush multires changes */
       multires_flush_sculpt_updates(ob);
 
-      /* flush dyntopo changes */
+      /* flush dynotopo changes */
       BKE_sculptsession_bm_to_me(ob);
 
       DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);

@@ -165,9 +165,6 @@ static void file_exit(wmWindowManager *wm, ScrArea *area)
     sfile->previews_timer = nullptr;
   }
 
-  wmWindow *win = WM_window_find_by_area(wm, area);
-  file_params_smoothscroll_timer_clear(wm, win, sfile);
-
   ED_fileselect_exit(wm, sfile);
 }
 
@@ -913,13 +910,6 @@ static void file_space_subtype_set(ScrArea *area, int value)
   for (ARegion &region : area->regionbase) {
     region.v2d.flag &= ~V2D_IS_INIT;
   }
-
-  /* Exit all data specific to the current browse mode when that changes. */
-  if (sfile->browse_mode != eFileBrowse_Mode(value)) {
-    wmWindowManager *wm = G_MAIN->wm.first();
-    file_exit(wm, area);
-  }
-
   sfile->browse_mode = eFileBrowse_Mode(value);
 }
 
@@ -1020,9 +1010,7 @@ static void file_space_blend_write(BlendWriter *writer, SpaceLink *sl)
 {
   SpaceFile *sfile = reinterpret_cast<SpaceFile *>(sl);
 
-  writer->write_struct_cast<SpaceFile>(sl, [](BlendStructWriter<SpaceFile> &struct_writer) {
-    struct_writer.shallow_data.runtime = nullptr;
-  });
+  writer->write_struct_cast<SpaceFile>(sl);
   if (sfile->params) {
     writer->write_struct(sfile->params);
   }

@@ -148,8 +148,6 @@ struct SymbolTable {
 
   SymbolClass *to_class(builtin::ClassId id) const;
 
-  SymbolClass *make_type(SymbolClass *base, int size) const;
-
  private:
   struct BuiltinType {
     /* "int", "int2", ... */
@@ -175,7 +173,8 @@ struct SymbolTable {
   vector<BuiltinType> generate_builtin_types();
   vector<BuiltinFunc> generate_all_constructors(const vector<BuiltinType> &types);
   vector<BuiltinFunc> generate_all_builtin_functions();
-  vector<BuiltinFunc> generate_all_builtin_constexpr_functions();
+
+  SymbolClass *make_type(SymbolClass *base, int size);
 
   void add_operator(
       SourceLocation loc, SymbolClass *left, TokenType op, SymbolClass *right, SymbolClass *ret);

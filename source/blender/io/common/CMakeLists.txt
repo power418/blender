@@ -14,7 +14,6 @@ set(SRC
   intern/abstract_hierarchy_iterator.cc
   intern/dupli_parent_finder.cc
   intern/dupli_persistent_id.cc
-  intern/gsplat.cc
   intern/mesh_utils.cc
   intern/object_identifier.cc
   intern/orientation.cc
@@ -24,7 +23,6 @@ set(SRC
 
   IO_abstract_hierarchy_iterator.h
   IO_dupli_persistent_id.hh
-  IO_gsplat.hh
   IO_mesh_utils.hh
   IO_orientation.hh
   IO_path_util.hh

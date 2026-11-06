@@ -134,7 +134,6 @@ struct ViewOpsData {
     float camdx, camdy;                        /* MOVE and ZOOM. */
     float camzoom;                             /* ZOOM. */
     float camroll;                             /* ROLL. */
-    bool cam_flip_x;                           /* FLIP X. */
     float dist;                                /* ROTATE and ZOOM. */
     float quat[4];                             /* ROLL and ROTATE. */
     eRegionView3D_Persp persp;                 /* ROTATE. */

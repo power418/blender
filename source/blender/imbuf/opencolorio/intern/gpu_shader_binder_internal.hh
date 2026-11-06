@@ -92,7 +92,7 @@ class GPUTextures : NonCopyable, NonMovable {
   bool initialize_common();
 };
 
-class GPUCurveMapping : NonCopyable, NonMovable {
+class GPUCurveMappping : NonCopyable, NonMovable {
  public:
   int lut_size = 0;
   float *lut = nullptr;
@@ -101,7 +101,7 @@ class GPUCurveMapping : NonCopyable, NonMovable {
   gpu::Texture *texture = nullptr;
   size_t cache_id = 0;
 
-  ~GPUCurveMapping();
+  ~GPUCurveMappping();
 
   /**
    * Rasterize given curve mapping into a lookup table.
@@ -144,7 +144,7 @@ class GPUDisplayShader : NonCopyable, NonMovable {
   gpu::UniformBuf *parameters_buffer = nullptr;
 
   GPUTextures textures;
-  GPUCurveMapping curve_mapping;
+  GPUCurveMappping curve_mapping;
 
   ~GPUDisplayShader();
 

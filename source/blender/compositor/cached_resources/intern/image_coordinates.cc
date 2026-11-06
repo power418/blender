@@ -51,11 +51,7 @@ ImageCoordinates::ImageCoordinates(Context &context,
     : result(context.create_result(type == CoordinatesType::Pixel ? ResultType::Int2 :
                                                                     ResultType::Float2))
 {
-  /* Ignore transformations to improve cache hits, the caller can restore transformations if
-   * needed. */
-  Domain untransformed_domain = domain;
-  untransformed_domain.transformation = float3x3::identity();
-  this->result.allocate_texture(untransformed_domain, false);
+  this->result.allocate_texture(domain, false);
 
   if (context.use_gpu()) {
     this->compute_gpu(context, type);

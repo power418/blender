@@ -123,10 +123,11 @@ static void fillCineonMainHeader(LogImageFile *cineon,
   /* we leave it blank */
 }
 
-LogImageFile *cineonOpen(const uchar *buffer, size_t bufferSize)
+LogImageFile *cineonOpen(const uchar *byteStuff, int fromMemory, size_t bufferSize)
 {
   CineonMainHeader header;
   LogImageFile *cineon = MEM_new_uninitialized<LogImageFile>(__func__);
+  const char *filepath = reinterpret_cast<const char *>(byteStuff);
   int i;
   uint dataOffset;
 
@@ -143,13 +144,30 @@ LogImageFile *cineonOpen(const uchar *buffer, size_t bufferSize)
   /* for close routine */
   cineon->file = nullptr;
 
-  cineon->memBuffer = const_cast<uchar *>(buffer);
-  cineon->memCursor = const_cast<uchar *>(buffer);
-  cineon->memBufferSize = bufferSize;
+  if (fromMemory == 0) {
+    /* byteStuff is then the filepath */
+    cineon->file = BLI_fopen(filepath, "rb");
+    if (cineon->file == nullptr) {
+      if (verbose) {
+        printf("Cineon: Failed to open file \"%s\".\n", filepath);
+      }
+      logImageClose(cineon);
+      return nullptr;
+    }
+    /* not used in this case */
+    cineon->memBuffer = nullptr;
+    cineon->memCursor = nullptr;
+    cineon->memBufferSize = 0;
+  }
+  else {
+    cineon->memBuffer = const_cast<uchar *>(byteStuff);
+    cineon->memCursor = const_cast<uchar *>(byteStuff);
+    cineon->memBufferSize = bufferSize;
+  }
 
   if (logimage_fread(&header, sizeof(header), 1, cineon) == 0) {
     if (verbose) {
-      printf("Cineon: Not enough data for header.\n");
+      printf("Cineon: Not enough data for header in \"%s\".\n", byteStuff);
     }
     logImageClose(cineon);
     return nullptr;
@@ -170,7 +188,9 @@ LogImageFile *cineonOpen(const uchar *buffer, size_t bufferSize)
   }
   else {
     if (verbose) {
-      printf("Cineon: Bad magic number %lu.\n", ulong(header.fileHeader.magic_num));
+      printf("Cineon: Bad magic number %lu in \"%s\".\n",
+             ulong(header.fileHeader.magic_num),
+             byteStuff);
     }
     logImageClose(cineon);
     return nullptr;
@@ -188,6 +208,7 @@ LogImageFile *cineonOpen(const uchar *buffer, size_t bufferSize)
   }
 
   cineon->depth = header.imageHeader.elements_per_image;
+  cineon->srcFormat = format_Cineon;
 
   if (header.imageHeader.interleave == 0) {
     cineon->numElements = 1;
@@ -331,7 +352,8 @@ LogImageFile *cineonOpen(const uchar *buffer, size_t bufferSize)
   return cineon;
 }
 
-LogImageFile *cineonCreate(const char *filepath, int width, int height, const char *creator)
+LogImageFile *cineonCreate(
+    const char *filepath, int width, int height, int bitsPerSample, const char *creator)
 {
   CineonMainHeader header;
   const char *shortFilename = nullptr;
@@ -346,6 +368,14 @@ LogImageFile *cineonCreate(const char *filepath, int width, int height, const ch
   }
 
   /* Only 10 bits Cineon are supported */
+  if (bitsPerSample != 10) {
+    if (verbose) {
+      printf("cineon: Only 10 bits Cineon are supported.\n");
+    }
+    logImageClose(cineon);
+    return nullptr;
+  }
+
   cineon->width = width;
   cineon->height = height;
   cineon->element[0].bitsPerSample = 10;

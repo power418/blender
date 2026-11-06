@@ -10,8 +10,6 @@
 
 #include "BLI_map.hh"
 
-#include "IMB_imbuf_types.hh"
-
 struct Image;
 
 namespace blender {
@@ -23,7 +21,7 @@ namespace blender {
  */
 struct ScreenSpacePartialUpdate {
   const Image *image = nullptr;
-  imbuf::ChangesetID last_changeset_id = -1;
+  int64_t last_changeset_id = -1;
 
   /** \brief Reset the cursors when switching to a different image. */
   void ensure_image(const Image *new_image)

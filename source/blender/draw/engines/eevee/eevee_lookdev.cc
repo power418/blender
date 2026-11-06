@@ -213,7 +213,14 @@ bool LookdevWorld::sync(const LookdevParameters &new_parameters)
 
 LookdevModule::LookdevModule(Instance &inst) : inst_(inst) {}
 
-draw::Batch *LookdevModule::sphere_get(const SphereLOD level_of_detail)
+LookdevModule::~LookdevModule()
+{
+  for (gpu::Batch *batch : sphere_lod_) {
+    GPU_BATCH_DISCARD_SAFE(batch);
+  }
+}
+
+gpu::Batch *LookdevModule::sphere_get(const SphereLOD level_of_detail)
 {
   BLI_assert(level_of_detail >= SphereLOD::LOW && level_of_detail < SphereLOD::MAX);
 
@@ -223,7 +230,7 @@ draw::Batch *LookdevModule::sphere_get(const SphereLOD level_of_detail)
 #endif
 
   if (sphere_lod_[level_of_detail] != nullptr) {
-    return sphere_lod_[level_of_detail].get();
+    return sphere_lod_[level_of_detail];
   }
 
   int lat_res;
@@ -288,15 +295,14 @@ draw::Batch *LookdevModule::sphere_get(const SphereLOD level_of_detail)
     }
   }
 
-  sphere_lod_[level_of_detail] = make_batch(
-      GPU_batch_create_ex(GPU_PRIM_TRIS, vbo, nullptr, GPU_BATCH_OWNS_VBO));
-  return sphere_lod_[level_of_detail].get();
+  sphere_lod_[level_of_detail] = GPU_batch_create_ex(
+      GPU_PRIM_TRIS, vbo, nullptr, GPU_BATCH_OWNS_VBO);
+  return sphere_lod_[level_of_detail];
 }
 
 void LookdevModule::init(const rcti *visible_rect)
 {
   visible_rect_ = *visible_rect;
-  is_camera_view_ = inst_.is_viewport() && inst_.rv3d && (inst_.rv3d->persp == RV3D_CAMOB);
   use_reference_spheres_ = inst_.is_viewport() && inst_.overlays_enabled() &&
                            inst_.use_lookdev_overlay();
 
@@ -324,9 +330,9 @@ void LookdevModule::init(const rcti *visible_rect)
 
 float LookdevModule::calc_viewport_scale()
 {
-  const float scale = BLI_rcti_size_x(&visible_rect_) / (2000.0f * UI_SCALE_FAC);
-  const float min_scale = is_camera_view_ ? 0.0f : 0.5f;
-  return clamp_f(scale, min_scale, 1.0f);
+  const float viewport_scale = clamp_f(
+      BLI_rcti_size_x(&visible_rect_) / (2000.0f * UI_SCALE_FAC), 0.5f, 1.0f);
+  return viewport_scale;
 }
 
 LookdevModule::SphereLOD LookdevModule::calc_level_of_detail(const float viewport_scale)
@@ -346,7 +352,7 @@ LookdevModule::SphereLOD LookdevModule::calc_level_of_detail(const float viewpor
 static int calc_sphere_extent(const float viewport_scale)
 {
   const int sphere_radius = U.lookdev_sphere_size * UI_SCALE_FAC * viewport_scale;
-  return max_ii(sphere_radius * 2, 4);
+  return sphere_radius * 2;
 }
 
 void LookdevModule::sync()
@@ -390,7 +396,7 @@ void LookdevModule::sync()
   model_m4 = math::scale(model_m4, float3(this->sphere_radius_));
 
   ResourceHandleRange handle = inst_.manager->resource_handle(model_m4);
-  draw::Batch *geom = sphere_get(calc_level_of_detail(viewport_scale));
+  gpu::Batch *geom = sphere_get(calc_level_of_detail(viewport_scale));
 
   sync_pass(spheres_[0].pass, geom, inst_.materials.metallic_mat, handle);
   sync_pass(spheres_[1].pass, geom, inst_.materials.diffuse_mat, handle);
@@ -398,7 +404,7 @@ void LookdevModule::sync()
 }
 
 void LookdevModule::sync_pass(PassSimple &pass,
-                              draw::Batch *geom,
+                              gpu::Batch *geom,
                               blender::Material *mat,
                               ResourceHandleRange res_handle)
 {

@@ -174,9 +174,9 @@ static constexpr AttributeAccessorFunctions get_pointcloud_accessor_functions()
     if (storage.lookup(name)) {
       return false;
     }
-    GList data = attribute_init_to_list(
+    Attribute::DataVariant data = attribute_init_to_data(
         type, domain_size, initializer, array_storage_required().contains(name));
-    storage.add(name, domain, std::move(data));
+    storage.add(name, domain, type, std::move(data));
     if (initializer.type != AttributeInit::Type::Construct) {
       if (const std::optional<AttrUpdateOnChange> fn = changed_tags().lookup_try(name)) {
         (*fn)(owner);
@@ -204,10 +204,10 @@ static constexpr AttributeAccessorFunctions get_pointcloud_accessor_functions()
     if (!attr) {
       return false;
     }
-    GList data = attribute_init_to_list(attr->data_type(),
-                                        pointcloud.totpoint,
-                                        initializer,
-                                        array_storage_required().contains(name));
+    Attribute::DataVariant data = attribute_init_to_data(attr->data_type(),
+                                                         pointcloud.totpoint,
+                                                         initializer,
+                                                         array_storage_required().contains(name));
     attr->assign_data(std::move(data));
     if (initializer.type != AttributeInit::Type::Construct) {
       if (const std::optional<AttrUpdateOnChange> fn = changed_tags().lookup_try(name)) {

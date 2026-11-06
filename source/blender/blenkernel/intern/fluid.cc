@@ -1526,8 +1526,8 @@ static void emit_from_particles(Object *flow_ob,
                                 Scene *scene,
                                 float dt)
 {
-  /* Is particle system selected. */
-  if (ffs && ffs->psys && ffs->psys->part && ELEM(ffs->psys->part->type, PART_EMITTER, PART_FLUID))
+  if (ffs && ffs->psys && ffs->psys->part &&
+      ELEM(ffs->psys->part->type, PART_EMITTER, PART_FLUID)) /* Is particle system selected. */
   {
     ParticleSimulationData sim;
     ParticleSystem *psys = ffs->psys;
@@ -3063,8 +3063,7 @@ static void update_effectors_task_cb(void *__restrict userdata,
       if ((data->fuel && std::max(data->density[index], data->fuel[index]) < FLT_EPSILON) ||
           (!data->fuel && data->density && data->density[index] < FLT_EPSILON) ||
           (data->phi_obs_in && data->phi_obs_in[index] < 0.0f) ||
-          /* Manta-flow convention: `2 == FlagObstacle`. */
-          data->flags[index] & 2)
+          data->flags[index] & 2) /* Manta-flow convention: `2 == FlagObstacle`. */
       {
         continue;
       }
@@ -4132,18 +4131,18 @@ static float calc_voxel_transp(
   return *t_ray;
 }
 
-static void bresenham_line_3D(int x1,
-                              int y1,
-                              int z1,
-                              int x2,
-                              int y2,
-                              int z2,
-                              float *t_ray,
-                              BKE_Fluid_BresenhamFn cb,
-                              float *result,
-                              float *input,
-                              int res[3],
-                              float correct)
+static void bresenham_linie_3D(int x1,
+                               int y1,
+                               int z1,
+                               int x2,
+                               int y2,
+                               int z2,
+                               float *t_ray,
+                               BKE_Fluid_BresenhamFn cb,
+                               float *result,
+                               float *input,
+                               int res[3],
+                               float correct)
 {
   int dx, dy, dz, i, l, m, n, x_inc, y_inc, z_inc, err_1, err_2, dx2, dy2, dz2;
   int pixel[3];
@@ -4292,18 +4291,18 @@ static void manta_smoke_calc_transparency(const Main &bmain,
         CLAMP(cell[1], 0, fds->res[1] - 1);
         CLAMP(cell[2], 0, fds->res[2] - 1);
 
-        bresenham_line_3D(cell[0],
-                          cell[1],
-                          cell[2],
-                          x,
-                          y,
-                          z,
-                          &t_ray,
-                          calc_voxel_transp,
-                          shadow,
-                          density,
-                          fds->res,
-                          correct);
+        bresenham_linie_3D(cell[0],
+                           cell[1],
+                           cell[2],
+                           x,
+                           y,
+                           z,
+                           &t_ray,
+                           calc_voxel_transp,
+                           shadow,
+                           density,
+                           fds->res,
+                           correct);
 
         /* Convention -> from a RGBA float array, use G value for t_ray. */
         shadow[index] = t_ray;

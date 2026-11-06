@@ -14,12 +14,9 @@
 
 #include "DNA_node_types.h"
 
-#include "BKE_compositor.hh"
-#include "BKE_compute_context_cache.hh"
 #include "BKE_compute_contexts.hh"
 #include "BKE_node.hh"
 #include "BKE_node_runtime.hh"
-#include "BKE_node_tree_zones.hh"
 #include "BKE_type_conversions.hh"
 
 #include "NOD_geo_index_switch.hh"
@@ -31,30 +28,18 @@
 
 namespace blender::compositor {
 
-/* Checks if the given node group with the given compute context has an active Viewer node in it or
- * in one of its descendants with the given viewer compute context. */
-static bool has_viewer_node(const bNodeTree &node_group,
-                            const ComputeContext &compute_context,
-                            const ComputeContext &viewer_compute_context,
-                            bke::ComputeContextCache &compute_context_cache)
+bool has_viewer_node(const bNodeTree &node_group,
+                     const ComputeContext &compute_context,
+                     const ComputeContextHash &active_compute_context_hash)
 {
   node_group.ensure_topology_cache();
 
-  /* Check if any of the nodes match the viewer compute context. */
-  for (const bNode *node : node_group.nodes_by_type("CompositorNodeViewer"_ustr)) {
-    if (!(node->flag & NODE_DO_OUTPUT) || node->is_muted()) {
-      continue;
-    }
-
-    const ComputeContext *zone_viewer_compute_context =
-        bke::compositor::get_zone_viewer_compute_context(
-            *node, nullptr, compute_context, compute_context_cache);
-    if (!zone_viewer_compute_context) {
-      break;
-    }
-
-    if (&viewer_compute_context == zone_viewer_compute_context) {
-      return true;
+  /* If this is the active node group, check if a viewer node exists.  */
+  if (compute_context.hash() == active_compute_context_hash) {
+    for (const bNode *node : node_group.nodes_by_type("CompositorNodeViewer"_ustr)) {
+      if (node->flag & NODE_DO_OUTPUT && !node->is_muted()) {
+        return true;
+      }
     }
   }
 
@@ -64,20 +49,10 @@ static bool has_viewer_node(const bNodeTree &node_group,
       continue;
     }
 
-    const ComputeContext *zone_viewer_compute_context =
-        bke::compositor::get_zone_viewer_compute_context(
-            *group_node, nullptr, compute_context, compute_context_cache);
-    if (!zone_viewer_compute_context) {
-      continue;
-    }
-
     const bNodeTree &child_node_group = *reinterpret_cast<const bNodeTree *>(group_node->id);
-    const bke::GroupNodeComputeContext &node_compute_context =
-        compute_context_cache.for_group_node(
-            zone_viewer_compute_context, group_node->identifier, &group_node->owner_tree());
-    if (has_viewer_node(
-            child_node_group, node_compute_context, viewer_compute_context, compute_context_cache))
-    {
+    const bke::GroupNodeComputeContext node_compute_context(
+        &compute_context, group_node->identifier, &group_node->owner_tree());
+    if (has_viewer_node(child_node_group, node_compute_context, active_compute_context_hash)) {
       return true;
     }
   }
@@ -232,14 +207,6 @@ static bool is_input_needed(const Context &context,
                             const bNodeSocket &input,
                             SocketResultFn socket_result_fn)
 {
-  /* Lazy evaluation of inputs that reference outputs outside of their own zone are currently not
-   * supported. */
-  const bke::bNodeTreeZones &zones = *node.owner_tree().zones();
-  const bNodeSocket *output = get_output_linked_to_input(input);
-  if (output && zones.get_zone_by_socket(input) != zones.get_zone_by_socket(*output)) {
-    return true;
-  }
-
   if (node.is_group_output()) {
     const Result *result = socket_result_fn(input);
     if (!result) {
@@ -265,33 +232,17 @@ static bool is_input_needed(const Context &context,
 
 /* Get a stack of the output nodes whose result should be computed. This typically includes the
  * main output node like the Group Output node, as well as side-effect nodes if requested by the
- * context like the File Output, Viewer nodes, group nodes whose group that have those side effect
- * nodes, or zones that have those side effect nodes. If zone is not nullptr, only output nodes in
- * that zone will be included. */
+ * context like the File Output, Viewer nodes, or group nodes that have those side effect nodes. */
 static Stack<const bNode *> get_output_nodes(const Context &context,
                                              const bNodeTree &node_group,
                                              const ComputeContext &compute_context,
-                                             const bke::bNodeTreeZone *zone,
                                              SocketResultFn socket_result_fn)
 {
   node_group.ensure_topology_cache();
-  const bke::bNodeTreeZones &zones = *node_group.zones();
   const SideEffectOutputTypes needed_side_effect_output_types =
       context.needed_side_effect_output_types();
 
   Stack<const bNode *> node_stack;
-
-  /* If the node is in the same zone, we push the node to the stack, otherwise, we push the output
-   * node of the immediate child zone that contain the node. */
-  auto push_node_to_stack = [&](const bNode &node) {
-    const bke::bNodeTreeZone *node_zone = zones.get_zone_by_node(node.identifier);
-    if (node_zone == zone) {
-      node_stack.push(&node);
-    }
-    else {
-      node_stack.push(zones.get_zones_to_enter(zone, node_zone)[0]->output_node());
-    }
-  };
 
   /* Add group nodes that contain File Output and Viewer nodes. */
   for (const bNode *group_node : node_group.group_nodes()) {
@@ -299,107 +250,57 @@ static Stack<const bNode *> get_output_nodes(const Context &context,
       continue;
     }
 
-    /* Only consider nodes inside the same zone being scheduled. */
-    if (zone && !zone->contains_node_recursively(*group_node)) {
+    const bNodeTree &child_tree = *reinterpret_cast<const bNodeTree *>(group_node->id);
+    const bke::GroupNodeComputeContext node_compute_context(
+        &compute_context, group_node->identifier, &group_node->owner_tree());
+    if (flag_is_set(needed_side_effect_output_types, SideEffectOutputTypes::ViewerNode) &&
+        has_viewer_node(
+            child_tree, node_compute_context, context.get_active_compute_context_hash()))
+    {
+      node_stack.push(group_node);
       continue;
     }
 
-    const bNodeTree &child_tree = *reinterpret_cast<const bNodeTree *>(group_node->id);
     if (flag_is_set(needed_side_effect_output_types, SideEffectOutputTypes::FileOutputNode) &&
         has_file_output_recursive(child_tree))
     {
-      push_node_to_stack(*group_node);
-      continue;
-    }
-
-    const ComputeContext *zone_viewer_compute_context =
-        bke::compositor::get_zone_viewer_compute_context(
-            *group_node, zone, compute_context, context.compute_context_cache());
-    if (!zone_viewer_compute_context) {
-      continue;
-    }
-
-    const bke::GroupNodeComputeContext &node_compute_context =
-        context.compute_context_cache().for_group_node(
-            zone_viewer_compute_context, group_node->identifier, &group_node->owner_tree());
-    const ComputeContext *viewer_compute_context = context.viewer_compute_context();
-    if (flag_is_set(needed_side_effect_output_types, SideEffectOutputTypes::ViewerNode) &&
-        viewer_compute_context &&
-        has_viewer_node(child_tree,
-                        node_compute_context,
-                        *viewer_compute_context,
-                        context.compute_context_cache()))
-    {
-      push_node_to_stack(*group_node);
-      continue;
+      node_stack.push(group_node);
     }
   }
 
   /* Add Warning nodes. */
   for (const bNode *node : node_group.nodes_by_type("GeometryNodeWarning"_ustr)) {
-    if (node->is_muted()) {
-      continue;
+    if (!node->is_muted()) {
+      node_stack.push(node);
     }
-
-    /* Only consider nodes inside the same zone being scheduled. */
-    if (zone && !zone->contains_node_recursively(*node)) {
-      continue;
-    }
-
-    push_node_to_stack(*node);
   }
 
   /* Add File Output nodes. */
   if (flag_is_set(needed_side_effect_output_types, SideEffectOutputTypes::FileOutputNode)) {
     for (const bNode *node : node_group.nodes_by_type("CompositorNodeOutputFile"_ustr)) {
-      if (node->is_muted()) {
-        continue;
+      if (!node->is_muted()) {
+        node_stack.push(node);
       }
-
-      /* Only consider nodes inside the same zone being scheduled. */
-      if (zone && !zone->contains_node_recursively(*node)) {
-        continue;
-      }
-
-      push_node_to_stack(*node);
     }
   }
 
-  /* Add Viewer node. */
-  const ComputeContext *viewer_compute_context = context.viewer_compute_context();
+  /* Add Viewer node if this is the active context. */
+  const bool is_active_context = compute_context.hash() ==
+                                 context.get_active_compute_context_hash();
   if (flag_is_set(needed_side_effect_output_types, SideEffectOutputTypes::ViewerNode) &&
-      viewer_compute_context)
+      is_active_context)
   {
     for (const bNode *node : node_group.nodes_by_type("CompositorNodeViewer"_ustr)) {
-      if (!(node->flag & NODE_DO_OUTPUT) || node->is_muted()) {
-        continue;
-      }
-
-      /* Only consider nodes inside the same zone being scheduled. */
-      if (zone && !zone->contains_node_recursively(*node)) {
+      if (node->flag & NODE_DO_OUTPUT && !node->is_muted()) {
+        node_stack.push(node);
         break;
       }
-
-      /* Only consider nodes in the viewer compute context. */
-      const ComputeContext *zone_viewer_compute_context =
-          bke::compositor::get_zone_viewer_compute_context(
-              *node, zone, compute_context, context.compute_context_cache());
-      if (!zone_viewer_compute_context) {
-        break;
-      }
-
-      if (viewer_compute_context != zone_viewer_compute_context) {
-        break;
-      }
-
-      push_node_to_stack(*node);
-      break;
     }
   }
 
-  /* Add Group Output node if any of its inputs are needed and we are not scheduling a zone. */
+  /* Add Group Output node if any of its inputs are needed. */
   const bNode *output_node = node_group.group_output_node();
-  if (!zone && output_node && !output_node->is_muted()) {
+  if (output_node && !output_node->is_muted()) {
     for (const bNodeSocket *input : output_node->input_sockets()) {
       if (!is_socket_available(input)) {
         continue;
@@ -410,11 +311,6 @@ static Stack<const bNode *> get_output_nodes(const Context &context,
         break;
       }
     }
-  }
-
-  /* Add the Zone Output node if we are scheduling a zone. */
-  if (zone) {
-    node_stack.push(zone->output_node());
   }
 
   return node_stack;
@@ -584,9 +480,9 @@ static NeededBuffers compute_number_of_needed_buffers(const Context &context,
       /* If any of the links is not between two pixel nodes, it means that the node outputs
        * a buffer through this output and so we increment the number of output buffers. */
       if (!is_pixel_node(node) ||
-          is_output_linked_to_input_conditioned(
-              *output,
-              [&](const bNodeSocket &input) { return !is_pixel_node(input.owner_node()); }))
+          is_output_linked_to_input_conditioned(*output, [&](const bNodeSocket &input) {
+            return !is_pixel_node(input.owner_node());
+          }))
       {
         number_of_output_buffers++;
       }
@@ -603,17 +499,13 @@ static NeededBuffers compute_number_of_needed_buffers(const Context &context,
   return needed_buffers;
 }
 
-/* Find the nodes that the given node depends on. Nodes already scheduled are not included. Only
- * nodes in the given zone are included, except for zone output nodes of child zones, which acts as
- * representatives for the zone in the schedule. Unneeded inputs are marked in the schedule. */
-static Vector<const bNode *> find_node_dependency_nodes(const Context &context,
-                                                        Schedule &schedule,
-                                                        const bNode &node,
-                                                        const bke::bNodeTreeZone *zone,
-                                                        SocketResultFn socket_result_fn)
+/* Find the nodes that the given node depends on. Nodes already scheduled are not included.
+ * Unneeded inputs are marked in the schedule. */
+static Vector<const bNode *> find_dependency_nodes(const Context &context,
+                                                   Schedule &schedule,
+                                                   const bNode &node,
+                                                   SocketResultFn socket_result_fn)
 {
-  const bke::bNodeTreeZones &zones = *node.owner_tree().zones();
-
   VectorSet<const bNode *> dependency_nodes;
   for (const bNodeSocket *input : node.input_sockets()) {
     if (!is_socket_available(input)) {
@@ -635,71 +527,10 @@ static Vector<const bNode *> find_node_dependency_nodes(const Context &context,
       continue;
     }
 
-    /* Dependency node is not in the same zone, so skip it. */
-    const bke::bNodeTreeZone *dependency_node_zone = zones.get_zone_by_socket(*output);
-    if (dependency_node_zone != zone) {
-      continue;
-    }
-
     dependency_nodes.add(&output->owner_node());
   }
 
   return dependency_nodes.extract_vector();
-}
-
-/* Find the nodes that the given zone depends on, this includes both source nodes of zone border
- * links as well as the dependencies of the inputs of the zone input node. Nodes already scheduled
- * are not included. Only dependencies in the parent zone are included. */
-static Vector<const bNode *> find_zone_dependency_nodes(const Context &context,
-                                                        Schedule &schedule,
-                                                        const bke::bNodeTreeZone &zone,
-                                                        SocketResultFn socket_result_fn)
-{
-  VectorSet<const bNode *> dependency_nodes;
-  for (const bNodeLink *link : zone.border_links) {
-    const bNodeSocket *output = get_output_linked_to_input(*link->tosock);
-    if (!output) {
-      continue;
-    }
-
-    /* The dependency node was already scheduled, so skip it. */
-    if (schedule.nodes.contains(&output->owner_node())) {
-      continue;
-    }
-
-    /* Only consider nodes in the same zone being scheduled. */
-    if (zone.owner->get_zone_by_socket(*output) != zone.parent_zone) {
-      continue;
-    }
-
-    dependency_nodes.add(&output->owner_node());
-  }
-
-  Vector<const bNode *> zone_input_dependency_nodes = find_node_dependency_nodes(
-      context, schedule, *zone.input_node(), zone.parent_zone, socket_result_fn);
-  dependency_nodes.add_multiple(zone_input_dependency_nodes);
-  return dependency_nodes.extract_vector();
-}
-
-/* Find the nodes that the given node depends on. Nodes already scheduled are not included. Only
- * nodes in the given zone are included, except for zone output nodes of child zones, which acts as
- * representatives for the zone in the schedule. Unneeded inputs are marked in the schedule. */
-static Vector<const bNode *> find_dependency_nodes(const Context &context,
-                                                   Schedule &schedule,
-                                                   const bNode &node,
-                                                   const bke::bNodeTreeZone *zone,
-                                                   SocketResultFn socket_result_fn)
-{
-
-  /* If the node is a zone output of a child zone, we find the dependencies of the zone not its
-   * inner nodes. */
-  const bke::bNodeTreeZones &zones = *node.owner_tree().zones();
-  const bke::bNodeTreeZone *node_zone = zones.get_zone_by_node(node.identifier);
-  if (node_zone && node_zone->output_node() == &node && node_zone->parent_zone == zone) {
-    return find_zone_dependency_nodes(context, schedule, *node_zone, socket_result_fn);
-  }
-
-  return find_node_dependency_nodes(context, schedule, node, zone, socket_result_fn);
 }
 
 /* There are multiple different possible orders of evaluating a node graph, each of which needs
@@ -720,21 +551,19 @@ static Vector<const bNode *> find_dependency_nodes(const Context &context,
 Schedule compute_schedule(const Context &context,
                           const bNodeTree &node_group,
                           const ComputeContext &compute_context,
-                          const SocketResultFn socket_result_fn,
-                          const bke::bNodeTreeZone *zone)
+                          const SocketResultFn socket_result_fn)
 {
-  Schedule schedule = Schedule{node_group, zone};
+  Schedule schedule;
 
   /* Validate node group. */
   node_group.ensure_topology_cache();
-  const bke::bNodeTreeZones *zones = schedule.node_group.zones();
-  if (node_group.has_available_link_cycle() || !zones) {
+  if (node_group.has_available_link_cycle()) {
     return schedule;
   }
 
   /* Get a stack of the initial output nodes used to traverse the node group. */
   Stack<const bNode *> node_stack = get_output_nodes(
-      context, node_group, compute_context, zone, socket_result_fn);
+      context, node_group, compute_context, socket_result_fn);
 
   /* No output nodes, the node group has no effect, return an empty schedule. */
   if (node_stack.is_empty()) {
@@ -756,7 +585,7 @@ Schedule compute_schedule(const Context &context,
     const bNode &node = *node_stack.peek();
 
     Vector<const bNode *> dependency_nodes = find_dependency_nodes(
-        context, schedule, node, zone, socket_result_fn);
+        context, schedule, node, socket_result_fn);
 
     /* Push the dependency nodes to the node stack such that the node with the highest number of
      * needed buffers is scheduled first, so we push the nodes in ascending order. */
@@ -775,73 +604,6 @@ Schedule compute_schedule(const Context &context,
   }
 
   return schedule;
-}
-
-int compute_output_reference_count(const bNodeSocket &output,
-                                   const Schedule &schedule,
-                                   const VectorSet<const bNode *> *ignored_nodes)
-{
-  int count = 0;
-  Set<const bke::bNodeTreeZone *> child_zones_counted;
-  const bke::bNodeTreeZones &zones = *schedule.node_group.zones();
-  for (const bNodeSocket *input : output.logically_linked_sockets()) {
-    /* Input is explicitly ignored by the schedule and is thus not referenced. */
-    if (schedule.unneeded_inputs.contains(input)) {
-      continue;
-    }
-
-    /* The node of the input is explicitly ignored and is thus not referenced. */
-    if (ignored_nodes && ignored_nodes->contains(&input->owner_node())) {
-      continue;
-    }
-
-    /* If the input is in the same zone being scheduled and is part of the schedule, it is
-     * referenced. */
-    const bke::bNodeTreeZone *target_zone = zones.get_zone_by_socket(*input);
-    if (target_zone == schedule.zone && schedule.nodes.contains(&input->owner_node())) {
-      count++;
-      continue;
-    }
-
-    /* An exception to the above condition for inputs of zone input nodes. If the zone retrieved
-     * from the input socket is not the same as that of the owner node, that means the input is on
-     * a zone input node. In that case, we check the schedule for the zone output node, since the
-     * zone input does not exist in the schedule. */
-    const bke::bNodeTreeZone *target_node_zone = zones.get_zone_by_node(
-        input->owner_node().identifier);
-    if (target_zone == schedule.zone && target_zone != target_node_zone &&
-        schedule.nodes.contains(target_node_zone->output_node()))
-    {
-      count++;
-      continue;
-    }
-
-    /* If the input is not in a zone that is a descendant of the zone being scheduled, then it is
-     * not referenced. */
-    if (!target_zone || (schedule.zone && !schedule.zone->contains_zone_recursively(*target_zone)))
-    {
-      continue;
-    }
-
-    /* Get the immediate child of the zone being scheduled in the nested zone chain toward the
-     * target. */
-    const bke::bNodeTreeZone *child_zone = zones.get_zones_to_enter(schedule.zone, target_zone)[0];
-
-    /* The child zone is not scheduled, so the input is not referenced. */
-    if (!schedule.nodes.contains(child_zone->output_node())) {
-      continue;
-    }
-
-    /* Zones consider all incoming links from the same output as a single input, so we skip
-     * counting the child zone if it was already counted. */
-    if (child_zones_counted.contains(child_zone)) {
-      continue;
-    }
-
-    count++;
-    child_zones_counted.add_new(child_zone);
-  }
-  return count;
 }
 
 }  // namespace blender::compositor

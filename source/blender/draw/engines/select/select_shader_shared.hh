@@ -8,10 +8,11 @@
 
 #pragma once
 
-#include "GPU_shader_shared_utils.hh"
-
 #ifndef GPU_SHADER
+#  include "GPU_shader_shared_utils.hh"
+
 namespace blender::draw::select {
+
 #endif
 
 /* Matches eV3DSelectMode */

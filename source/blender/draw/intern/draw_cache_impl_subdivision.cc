@@ -1618,7 +1618,7 @@ static bool draw_subdiv_create_requested_buffers(Object &ob,
   BMesh *bm = nullptr;
   if (mesh.runtime->edit_mesh) {
     mesh_eval = BKE_object_get_editmesh_eval_final(&ob);
-    bm = BKE_editmesh_bmesh_get_for_write(&mesh);
+    bm = mesh.runtime->edit_mesh->bm;
   }
 
 #ifdef WITH_OPENSUBDIV

@@ -25,7 +25,6 @@
 
 namespace blender::nodes::tests {
 
-namespace {
 class NodeTest : public bke::BlenderGTestBase {
 
  protected:
@@ -80,7 +79,6 @@ class TestData {
     }
   }
 };
-}  // namespace
 
 TEST_F(NodeTest, tree_iterator_empty)
 {

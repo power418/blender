@@ -14,15 +14,13 @@ namespace blender {
 
 namespace gpu {
 struct VKExtensions;
-struct VKWorkarounds;
-}  // namespace gpu
+}
 
 namespace gpu::render_graph {
 class VKCommandBufferInterface {
  public:
   bool use_dynamic_rendering_local_read = true;
   bool use_multi_draw_indirect = true;
-  bool use_dynamic_state_viewport_scissor = true;
 
   VKCommandBufferInterface() {}
   virtual ~VKCommandBufferInterface() = default;
@@ -169,8 +167,7 @@ class VKCommandBufferWrapper : public VKCommandBufferInterface {
  public:
   VKCommandBufferWrapper(VkCommandBuffer vk_command_buffer,
                          const VolkDeviceTable &functions,
-                         const VKExtensions &extensions,
-                         const VKWorkarounds &workarounds);
+                         const VKExtensions &extensions);
 
   void begin_recording() override;
   void end_recording() override;

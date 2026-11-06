@@ -102,11 +102,6 @@ class ConvolveOperation : public NodeOperation {
   {
     return this->get_input("Normalize Kernel").get_single_value_default<bool>();
   }
-
-  bool uses_asynchronous_execution() const override
-  {
-    return false;
-  }
 };
 
 static NodeOperation *get_compositor_operation(Context &context, const bNode &node)

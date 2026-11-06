@@ -48,7 +48,8 @@ void freeCustomNormalArray(TransInfo *t, TransDataContainer *tc, TransCustomData
 
   if (t->state == TRANS_CANCEL) {
     BMLoopNorEditData *lnor_ed = lnors_ed_arr->lnor_editdata;
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(tc->obedit);
+    BMEditMesh *em = BKE_editmesh_from_object(tc->obedit);
+    BMesh *bm = em->bm;
 
     /* Restore custom loop normal on cancel. */
     for (int i = 0; i < lnors_ed_arr->totloop; i++, lnor_ed++) {
@@ -95,7 +96,8 @@ static void applyNormalRotation(TransInfo *t)
   t->values_final[0] = angle;
 
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(tc->obedit);
+    BMEditMesh *em = BKE_editmesh_from_object(tc->obedit);
+    BMesh *bm = em->bm;
 
     BMLoopNorEditDataArray *lnors_ed_arr = static_cast<BMLoopNorEditDataArray *>(
         tc->custom.mode.data);
@@ -138,9 +140,10 @@ static void initNormalRotation(TransInfo *t, wmOperator * /*op*/)
   t->num.unit_type[0] = B_UNIT_ROTATION;
 
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(tc->obedit);
+    BMEditMesh *em = BKE_editmesh_from_object(tc->obedit);
+    BMesh *bm = em->bm;
 
-    BKE_editmesh_lnorspace_update(bm);
+    BKE_editmesh_lnorspace_update(em);
 
     storeCustomLNorValue(tc, bm);
   }

@@ -185,11 +185,11 @@ void bmo_extrude_edge_only_exec(BMesh *bm, BMOperator *op)
 
   BMO_op_exec(bm, &dupeop);
 
-  /* Disable root flag on original skin nodes. */
+  /* disable root flag on all new skin nodes */
   if (CustomData_has_layer_named(&bm->vdata, CD_PROP_BOOL, "skin_modifier_root")) {
-    BMO_ITER (e, &siter, op->slots_in, "edges", BM_EDGE) {
-      bm_extrude_disable_skin_root(bm, e->v1);
-      bm_extrude_disable_skin_root(bm, e->v2);
+    BMVert *v;
+    BMO_ITER (v, &siter, dupeop.slots_out, "geom.out", BM_VERT) {
+      bm_extrude_disable_skin_root(bm, v);
     }
   }
 
@@ -413,13 +413,9 @@ void bmo_extrude_face_region_exec(BMesh *bm, BMOperator *op)
   BMO_slot_copy(op, slots_in, "geom", &dupeop, slots_in, "geom");
   BMO_op_exec(bm, &dupeop);
 
-  /* Disable root flag on original skin nodes. */
+  /* disable root flag on all new skin nodes */
   if (CustomData_has_layer_named(&bm->vdata, CD_PROP_BOOL, "skin_modifier_root")) {
-    BMO_ITER (e, &siter, op->slots_in, "geom", BM_EDGE) {
-      bm_extrude_disable_skin_root(bm, e->v1);
-      bm_extrude_disable_skin_root(bm, e->v2);
-    }
-    BMO_ITER (v, &siter, op->slots_in, "geom", BM_VERT) {
+    BMO_ITER (v, &siter, dupeop.slots_out, "geom.out", BM_VERT) {
       bm_extrude_disable_skin_root(bm, v);
     }
   }

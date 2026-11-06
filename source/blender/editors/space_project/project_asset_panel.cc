@@ -85,8 +85,8 @@ struct ProjectAssetLibraryListItem : public AssetLibraryListItemCommon {
       sub.label(IFACE_("Built-In"), ICON_NONE);
     }
 
-    if (library.user_library && !(library.user_library->flag & ASSET_LIBRARY_DISABLED) &&
-        is_remote_library && !library.user_library->remote_url[0])
+    if (library.user_library && library.user_library->is_enabled() && is_remote_library &&
+        !library.user_library->remote_url[0])
     {
       row.label("", ICON_ERROR);
     }
@@ -103,38 +103,26 @@ struct ProjectAssetLibraryListItem : public AssetLibraryListItemCommon {
                "enabled",
                UI_ITEM_NONE,
                "",
-               (library.user_library->flag & ASSET_LIBRARY_DISABLED) ? ICON_CHECKBOX_DEHLT :
-                                                                       ICON_CHECKBOX_HLT);
+               library.user_library->is_enabled() ? ICON_CHECKBOX_HLT : ICON_CHECKBOX_DEHLT);
     }
   }
 
   void on_activate(bContext &C) override
   {
     bke::BlenderProject *project = BKE_blender_project_get(CTX_data_main(&C));
-    if (!project) {
-      return;
-    }
     project->active_asset_library_index = index_in_list;
   }
   std::optional<bool> should_be_active() const override
   {
-    const bke::BlenderProject *project = BKE_blender_project_get(G_MAIN);
-    if (!project) {
-      return std::nullopt;
-    }
+    bke::BlenderProject *project = BKE_blender_project_get(G_MAIN);
     return project->active_asset_library_index == index_in_list;
   }
 };
 
 static void project_asset_panel_draw(const bContext *C, Panel *panel)
 {
-  const bke::BlenderProject *project = BKE_blender_project_get(CTX_data_main(C));
-  if (!project) {
-    /* The category is always shown, but there is nothing to edit without a project. */
-    return;
-  }
-
   Vector<AnyAssetLibraryDefinition> libraries = project_ui_asset_libraries();
+  bke::BlenderProject *project = BKE_blender_project_get(CTX_data_main(C));
   int active_asset_library = project->active_asset_library_index;
 
   ui::Layout &layout = *panel->layout;
@@ -182,7 +170,7 @@ void project_asset_panel_register(ARegionType &region_type)
   panel_type->space_type = SPACE_PROJECT;
   panel_type->region_type = RGN_TYPE_WINDOW;
   panel_type->draw = project_asset_panel_draw;
-  panel_type->order = 10; /* Make sure the category are put after the other base categories. */
+  panel_type->order = 10; /* Make sure the category are put after the other base categoies. */
   BLI_addtail(&region_type.paneltypes, panel_type);
 }
 

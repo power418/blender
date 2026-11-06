@@ -12,39 +12,13 @@
 #include "BLI_generic_pointer.hh"
 #include "BLI_memory_counter_fwd.hh"
 
-#include "BKE_list_fwd.hh"
 #include "BKE_node_socket_value_fwd.hh"
 
-namespace blender {
-
-namespace fn {
-class GField;
-}
-namespace bke::volume_grid {
-class GVolumeGrid;
-}
-
-namespace bke {
+namespace blender::bke {
 
 class SocketValueVariant;
 
 namespace detail {
-
-enum class SocketValueStorageKind : uint8_t {
-  Single,
-  Field,
-  List,
-  Grid,
-};
-
-template<typename T>
-inline constexpr SocketValueStorageKind socket_value_storage_kind =
-    std::is_same_v<T, fn::GField> ? SocketValueStorageKind::Field :
-    std::is_same_v<T, GListPtr>   ? SocketValueStorageKind::List :
-#ifdef WITH_OPENVDB
-    std::is_same_v<T, volume_grid::GVolumeGrid> ? SocketValueStorageKind::Grid :
-#endif
-                                                  SocketValueStorageKind::Single;
 
 struct SocketValueVariantTypeInfo;
 using SocketValueVariantAny = Any<SocketValueVariantTypeInfo, 32, 16>;
@@ -53,7 +27,6 @@ struct SocketValueVariantTypeInfo {
   const CPPType &type;
   bool (*convert_to)(const CPPType &dst_type, SocketValueVariantAny &value);
   bool (*is_interpretable_as)(const CPPType &dst_type, const SocketValueVariantAny &value);
-  SocketValueStorageKind storage_kind;
 
   template<typename T> static SocketValueVariantTypeInfo get()
   {
@@ -61,7 +34,6 @@ struct SocketValueVariantTypeInfo {
         .type = *CPPType::get_pre_register<T>(),
         .convert_to = try_convert_fn<T>,
         .is_interpretable_as = is_interpretable_as_fn<T>,
-        .storage_kind = socket_value_storage_kind<T>,
     };
   }
 
@@ -233,8 +205,8 @@ class SocketValueVariant {
 template<typename T>
 inline SocketValueVariant::SocketValueVariant(T &&value)
   requires(std::is_trivial_v<std::decay_t<T>> || is_same_any_v<std::decay_t<T>, std::string>)
-    : value_(std::in_place_type<to_storage_type<std::decay_t<T>>>, std::forward<T>(value))
 {
+  this->emplace<std::decay_t<T>>(std::forward<T>(value));
 }
 
 template<typename T>
@@ -260,25 +232,20 @@ template<typename T, typename... Args> inline T &SocketValueVariant::emplace(Arg
   return reinterpret_cast<T &>(value);
 }
 
-template<typename T> inline T *SocketValueVariant::try_convert()
+template<typename T> T *SocketValueVariant::try_convert()
 {
   using StorageT = to_storage_type<T>;
   if (!value_.has_value()) {
     return nullptr;
   }
-  if (value_.is<StorageT>()) {
-    if constexpr (detail::has_generic_type<T>) {
-      /* Same generic storage (e.g. #GField), but the base type may still differ. */
-      if (value_.extra_info().is_interpretable_as(CPPType::get<T>(), value_)) {
-        return &reinterpret_cast<T &>(value_.get<StorageT>());
-      }
-    }
-    else {
-      return &reinterpret_cast<T &>(value_.get<StorageT>());
-    }
-  }
   const Info &info = value_.extra_info();
   const CPPType &requested_type = CPPType::get<T>();
+  if (info.type == requested_type) {
+    return &reinterpret_cast<T &>(value_.get<StorageT>());
+  }
+  if (info.is_interpretable_as(requested_type, value_)) {
+    return &reinterpret_cast<T &>(value_.get<StorageT>());
+  }
   if (!info.convert_to(requested_type, value_)) {
     return nullptr;
   }
@@ -303,49 +270,46 @@ inline void *SocketValueVariant::try_convert(const CPPType &type)
 
 template<typename T> inline T &SocketValueVariant::ensure_type()
 {
-  if (T *ptr = this->try_convert<T>()) {
-    return *ptr;
+  if (!this->try_convert<T>()) {
+    return this->init_default<T>();
   }
-  return this->init_default<T>();
+  return *this->get_if<T>();
 }
 
 inline void *SocketValueVariant::ensure_type(const CPPType &type)
 {
-  if (void *ptr = this->try_convert(type)) {
-    return ptr;
+  if (!this->try_convert(type)) {
+    return this->init_default(type);
   }
-  return this->init_default(type);
+  return value_.get();
 }
 
-template<typename T> inline T SocketValueVariant::copy_as() const
+template<typename T> T SocketValueVariant::copy_as() const
 {
-  if (const T *value = this->get_if<T>()) {
-    return *value;
-  }
   SocketValueVariant copy(*this);
   return copy.extract<T>();
 }
 
 template<typename T> inline const T *SocketValueVariant::get_if() const
 {
-  using StorageT = to_storage_type<T>;
-  if (!value_.has_value()) {
+  if (!value_) {
     return nullptr;
   }
-  /* Compare #Any type-info pointers directly instead of going through #CPPType. */
-  if (!value_.is<StorageT>()) {
-    return nullptr;
+  const Info &info = value_.extra_info();
+  const CPPType &requested_type = CPPType::get<T>();
+  if (info.type == requested_type) {
+    return &value_.get<T>();
   }
-  if constexpr (detail::has_generic_type<T>) {
-    const Info &info = value_.extra_info();
-    if (!info.is_interpretable_as(CPPType::get<T>(), value_)) {
-      return nullptr;
+  if (info.is_interpretable_as(requested_type, value_)) {
+    if constexpr (detail::has_generic_type<T>) {
+      using GenericT = T::generic_type;
+      return reinterpret_cast<const T *>(&value_.get<GenericT>());
     }
-    return reinterpret_cast<const T *>(&value_.get<StorageT>());
+    else {
+      return &value_.get<T>();
+    }
   }
-  else {
-    return &value_.get<StorageT>();
-  }
+  return nullptr;
 }
 
 template<typename T> inline T *SocketValueVariant::get_if()
@@ -391,30 +355,6 @@ inline GMutablePointer SocketValueVariant::get()
   return {info.type, value_.get()};
 }
 
-inline bool SocketValueVariant::is_single() const
-{
-  return value_.has_value() &&
-         value_.extra_info().storage_kind == detail::SocketValueStorageKind::Single;
-}
-
-inline bool SocketValueVariant::is_field() const
-{
-  return value_.has_value() &&
-         value_.extra_info().storage_kind == detail::SocketValueStorageKind::Field;
-}
-
-inline bool SocketValueVariant::is_list() const
-{
-  return value_.has_value() &&
-         value_.extra_info().storage_kind == detail::SocketValueStorageKind::List;
-}
-
-inline bool SocketValueVariant::is_volume_grid() const
-{
-  return value_.has_value() &&
-         value_.extra_info().storage_kind == detail::SocketValueStorageKind::Grid;
-}
-
 template<typename T> inline T &SocketValueVariant::init_default()
 {
   return SocketValueVariant::init_default<T>(value_);
@@ -430,5 +370,4 @@ template<typename T> inline T SocketValueVariant::extract()
   return std::move(this->ensure_type<T>());
 }
 
-}  // namespace bke
-}  // namespace blender
+}  // namespace blender::bke

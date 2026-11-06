@@ -261,7 +261,7 @@ void update_cache_invariants(VPaint &vp, SculptSession &ss, wmOperator *op, cons
   cache->accum = true;
 
   if (BKE_brush_color_jitter_get_settings(&vp.paint, stroke->brush)) {
-    cache->initial_hsv_jitter = BKE_paint_seed_hsv_jitter();
+    cache->initial_hsv_jitter = seed_hsv_jitter();
   }
 }
 
@@ -541,7 +541,7 @@ static void paint_and_tex_color_alpha_intern(const VPaint &vp,
                                              float4 &r_rgba)
 {
   const Brush *brush = BKE_paint_brush_for_read(&vp.paint);
-  const MTex *mtex = BKE_brush_mask_texture_get(brush, PaintMode::Vertex);
+  const MTex *mtex = BKE_brush_mask_texture_get(brush, OB_MODE_SCULPT);
   BLI_assert(mtex->tex != nullptr);
   if (mtex->brush_map_mode == MTEX_MAP_MODE_3D) {
     BKE_brush_sample_tex_3d(&vp.paint, brush, mtex, co, r_rgba, 0, nullptr);
@@ -908,18 +908,25 @@ static void do_vpaint_brush_blur_loops(const Depsgraph &depsgraph,
     select_poly = *attributes.lookup<bool>(".select_poly", bke::AttrDomain::Face);
   }
 
+  struct LocalData {
+    Vector<float> factors;
+    Vector<float> distances;
+  };
+  threading::EnumerableThreadSpecific<LocalData> all_tls;
   node_mask.foreach_index(
       [&](const int i) {
+        LocalData &tls = all_tls.local();
         const Span<int> verts = nodes[i].verts();
-
-        Array<float, bke::pbvh::MESH_LEAF_LIMIT> factors(verts.size());
+        tls.factors.resize(verts.size());
+        const MutableSpan<float> factors = tls.factors;
         fill_factor_from_hide(hide_vert, verts, factors);
         filter_region_clip_factors(ss, vert_positions, verts, factors);
         if (!select_vert.is_empty()) {
           filter_factors_with_selection(select_vert, verts, factors);
         }
 
-        Array<float, bke::pbvh::MESH_LEAF_LIMIT> distances(verts.size());
+        tls.distances.resize(verts.size());
+        const MutableSpan<float> distances = tls.distances;
         calc_brush_distances(
             ss, vert_positions, verts, eBrushFalloffShape(brush.falloff_shape), distances);
         filter_distances_with_radius(cache.radius, distances, factors);
@@ -1063,17 +1070,25 @@ static void do_vpaint_brush_blur_verts(const Depsgraph &depsgraph,
     select_poly = *attributes.lookup<bool>(".select_poly", bke::AttrDomain::Face);
   }
 
+  struct LocalData {
+    Vector<float> factors;
+    Vector<float> distances;
+  };
+  threading::EnumerableThreadSpecific<LocalData> all_tls;
   node_mask.foreach_index(
       [&](const int i) {
+        LocalData &tls = all_tls.local();
         const Span<int> verts = nodes[i].verts();
-        Array<float, bke::pbvh::MESH_LEAF_LIMIT> factors(verts.size());
+        tls.factors.resize(verts.size());
+        const MutableSpan<float> factors = tls.factors;
         fill_factor_from_hide(hide_vert, verts, factors);
         filter_region_clip_factors(ss, vert_positions, verts, factors);
         if (!select_vert.is_empty()) {
           filter_factors_with_selection(select_vert, verts, factors);
         }
 
-        Array<float, bke::pbvh::MESH_LEAF_LIMIT> distances(verts.size());
+        tls.distances.resize(verts.size());
+        const MutableSpan<float> distances = tls.distances;
         calc_brush_distances(
             ss, vert_positions, verts, eBrushFalloffShape(brush.falloff_shape), distances);
         filter_distances_with_radius(cache.radius, distances, factors);
@@ -1218,17 +1233,25 @@ static void do_vpaint_brush_smear(const Depsgraph &depsgraph,
     select_poly = *attributes.lookup<bool>(".select_poly", bke::AttrDomain::Face);
   }
 
+  struct LocalData {
+    Vector<float> factors;
+    Vector<float> distances;
+  };
+  threading::EnumerableThreadSpecific<LocalData> all_tls;
   node_mask.foreach_index(
       [&](const int i) {
+        LocalData &tls = all_tls.local();
         const Span<int> verts = nodes[i].verts();
-        Array<float, bke::pbvh::MESH_LEAF_LIMIT> factors(verts.size());
+        tls.factors.resize(verts.size());
+        const MutableSpan<float> factors = tls.factors;
         fill_factor_from_hide(hide_vert, verts, factors);
         filter_region_clip_factors(ss, vert_positions, verts, factors);
         if (!select_vert.is_empty()) {
           filter_factors_with_selection(select_vert, verts, factors);
         }
 
-        Array<float, bke::pbvh::MESH_LEAF_LIMIT> distances(verts.size());
+        tls.distances.resize(verts.size());
+        const MutableSpan<float> distances = tls.distances;
         calc_brush_distances(
             ss, vert_positions, verts, eBrushFalloffShape(brush.falloff_shape), distances);
         filter_distances_with_radius(cache.radius, distances, factors);
@@ -1386,6 +1409,11 @@ static void calculate_average_color(VPaintData &vpd,
     select_vert = *attributes.lookup<bool>(".select_vert", bke::AttrDomain::Point);
   }
 
+  struct LocalData {
+    Vector<float> factors;
+    Vector<float> distances;
+  };
+  threading::EnumerableThreadSpecific<LocalData> all_tls;
   to_static_color_type(vpd.type, [&](auto dummy) {
     using T = decltype(dummy);
     using Color =
@@ -1398,17 +1426,19 @@ static void calculate_average_color(VPaintData &vpd,
     node_mask.foreach_index(
         [&](const int i) {
           VPaintAverageAccum<Blend> &accum2 = accum[i];
+          LocalData &tls = all_tls.local();
 
           const Span<int> verts = nodes[i].verts();
-
-          Array<float, bke::pbvh::MESH_LEAF_LIMIT> factors(verts.size());
+          tls.factors.resize(verts.size());
+          const MutableSpan<float> factors = tls.factors;
           fill_factor_from_hide(hide_vert, verts, factors);
           filter_region_clip_factors(ss, vert_positions, verts, factors);
           if (!select_vert.is_empty()) {
             filter_factors_with_selection(select_vert, verts, factors);
           }
 
-          Array<float, bke::pbvh::MESH_LEAF_LIMIT> distances(verts.size());
+          tls.distances.resize(verts.size());
+          const MutableSpan<float> distances = tls.distances;
           calc_brush_distances(
               ss, vert_positions, verts, eBrushFalloffShape(brush.falloff_shape), distances);
           filter_distances_with_radius(cache.radius, distances, factors);
@@ -1543,25 +1573,35 @@ static void vpaint_do_draw(const Depsgraph &depsgraph,
 
   const float3 brush_color = get_brush_color(&vp.paint, &brush, cache, vpd.paintcol);
 
+  struct LocalData {
+    Vector<float> factors;
+    Vector<float> automask_factors;
+    Vector<float> distances;
+  };
+  threading::EnumerableThreadSpecific<LocalData> all_tls;
   node_mask.foreach_index(
       [&](const int i) {
+        LocalData &tls = all_tls.local();
         const Span<int> verts = nodes[i].verts();
-        Array<float, bke::pbvh::MESH_LEAF_LIMIT> factors(verts.size());
+        tls.factors.resize(verts.size());
+        const MutableSpan<float> factors = tls.factors;
         fill_factor_from_hide(hide_vert, verts, factors);
         filter_region_clip_factors(ss, vert_positions, verts, factors);
         if (!select_vert.is_empty()) {
           filter_factors_with_selection(select_vert, verts, factors);
         }
 
-        Array<float, bke::pbvh::MESH_LEAF_LIMIT> distances(verts.size());
+        tls.distances.resize(verts.size());
+        const MutableSpan<float> distances = tls.distances;
         calc_brush_distances(
             ss, vert_positions, verts, eBrushFalloffShape(brush.falloff_shape), distances);
         filter_distances_with_radius(cache.radius, distances, factors);
         calc_brush_strength_factors(cache, brush, distances, factors);
 
-        Array<float, bke::pbvh::MESH_LEAF_LIMIT> automask_factors;
+        MutableSpan<float> automask_factors;
         if (cache.automasking) {
-          automask_factors.reinitialize(verts.size());
+          tls.automask_factors.resize(verts.size());
+          automask_factors = tls.automask_factors;
           automask_factors.fill(1.0f);
           auto_mask::calc_vert_factors(
               depsgraph, ob, *cache.automasking, nodes[i], verts, automask_factors);
@@ -1891,7 +1931,7 @@ static void fill_bm_face_or_corner_attribute(BMesh &bm,
   BMFace *f;
   BMIter iter;
   BM_ITER_MESH (f, &iter, &bm, BM_FACES_OF_MESH) {
-    if (only_visible && BKE_paint_is_bmesh_face_hidden(f)) {
+    if (only_visible && paint_is_bmesh_face_hidden(f)) {
       continue;
     }
     BMLoop *l = f->l_first;
@@ -1965,8 +2005,9 @@ static void fill_mesh_color(Mesh &mesh,
                             const bool affect_alpha,
                             const bool only_visible = false)
 {
-  if (BMesh *bm = BKE_editmesh_bmesh_get_for_write(&mesh)) {
-    const BMDataLayerLookup attr = BM_data_layer_lookup(*bm, name);
+  if (BMEditMesh *em = mesh.runtime->edit_mesh.get()) {
+    BMesh *bm = em->bm;
+    const BMDataLayerLookup attr = BM_data_layer_lookup(*mesh.runtime->edit_mesh->bm, name);
     if (attr.type == bke::AttrType::ColorFloat) {
       fill_bm_face_or_corner_attribute<ColorPaint4f>(
           *bm, color, attr.domain, attr.offset, use_vert_sel, only_visible);

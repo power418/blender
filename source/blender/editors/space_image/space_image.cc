@@ -624,34 +624,6 @@ static void IMAGE_GGT_compositor_translate(wmGizmoGroupType *gzgt)
   gzgt->refresh = nodes::gizmos::translate_refresh;
 }
 
-static void IMAGE_GGT_compositor_transform(wmGizmoGroupType *gzgt)
-{
-  gzgt->name = "Transform Widget";
-  gzgt->idname = "IMAGE_GGT_compositor_transform";
-
-  gzgt->flag |= WM_GIZMOGROUPTYPE_PERSISTENT | WM_GIZMOGROUPTYPE_DRAW_MODAL_ALL;
-
-  gzgt->poll = nodes::gizmos::transform_poll_space_image;
-  gzgt->setup = nodes::gizmos::transform_setup;
-  gzgt->setup_keymap = WM_gizmogroup_setup_keymap_generic_maybe_drag;
-  gzgt->draw_prepare = nodes::gizmos::bbox_draw_prepare_space_image;
-  gzgt->refresh = nodes::gizmos::transform_refresh;
-}
-
-static void IMAGE_GGT_compositor_scale(wmGizmoGroupType *gzgt)
-{
-  gzgt->name = "Transform Widget";
-  gzgt->idname = "IMAGE_GGT_compositor_scale";
-
-  gzgt->flag |= WM_GIZMOGROUPTYPE_PERSISTENT | WM_GIZMOGROUPTYPE_DRAW_MODAL_ALL;
-
-  gzgt->poll = nodes::gizmos::scale_poll_space_image;
-  gzgt->setup = nodes::gizmos::scale_setup;
-  gzgt->setup_keymap = WM_gizmogroup_setup_keymap_generic_maybe_drag;
-  gzgt->draw_prepare = nodes::gizmos::bbox_draw_prepare_space_image;
-  gzgt->refresh = nodes::gizmos::scale_refresh;
-}
-
 static void image_widgets()
 {
   const wmGizmoMapType_Params params{SPACE_IMAGE, RGN_TYPE_WINDOW};
@@ -671,8 +643,6 @@ static void image_widgets()
   WM_gizmogrouptype_append_and_link(gzmap_type, IMAGE_GGT_compositor_ellipse_mask);
   WM_gizmogrouptype_append_and_link(gzmap_type, IMAGE_GGT_compositor_split);
   WM_gizmogrouptype_append_and_link(gzmap_type, IMAGE_GGT_compositor_translate);
-  WM_gizmogrouptype_append_and_link(gzmap_type, IMAGE_GGT_compositor_transform);
-  WM_gizmogrouptype_append_and_link(gzmap_type, IMAGE_GGT_compositor_scale);
 }
 
 /************************** main region ***************************/
@@ -861,7 +831,7 @@ static void image_main_region_draw(const bContext *C, ARegion *region)
     int viewer_size_x, viewer_size_y;
     ED_space_image_get_size(sima, &viewer_size_x, &viewer_size_y);
 
-    ED_region_overlay_info_text_draw(
+    ED_region_image_overlay_info_text_draw(
         render_size_x, render_size_y, viewer_size_x, viewer_size_y, xoffset, yoffset);
   }
 
@@ -1347,7 +1317,7 @@ static void image_space_blend_read_data(BlendDataReader * /*reader*/, SpaceLink 
 #if 0
   sima->gpd = newdataadr(fd, sima->gpd);
   if (sima->gpd) {
-    BKE_annotations_blend_read_data(fd, sima->gpd);
+    BKE_gpencil_blend_read_data(fd, sima->gpd);
   }
 #endif
 }

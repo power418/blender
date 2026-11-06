@@ -41,7 +41,6 @@
 #include "UI_view2d.hh"
 
 #include "buttons/interface_label.hh"
-#include "buttons/interface_label_markdown.hh"
 #include "buttons/interface_textbox.hh"
 #include "interface_intern.hh"
 
@@ -417,13 +416,15 @@ static struct {
 
   /* TODO: remove. */
   GPUVertFormat format;
+  uint vflag_id;
 } g_ui_batch_cache = {nullptr};
 
 static const GPUVertFormat &vflag_format()
 {
   if (g_ui_batch_cache.format.attr_len == 0) {
     GPUVertFormat *format = &g_ui_batch_cache.format;
-    GPU_vertformat_attr_add(format, "vflag", gpu::VertAttrType::UINT_32);
+    g_ui_batch_cache.vflag_id = GPU_vertformat_attr_add(
+        format, "vflag", gpu::VertAttrType::UINT_32);
   }
   return g_ui_batch_cache.format;
 }
@@ -433,16 +434,28 @@ static const GPUVertFormat &vflag_format()
 #define EMBOSS 2
 #define NO_AA 0
 
-static uint32_t roundbox_vertex_data(
-    int corner_id, int corner_v, int jit_v, bool inner, bool emboss, int color)
+static void set_roundbox_vertex_data(GPUVertBufRaw *vflag_step, uint32_t d)
 {
-  uint32_t data = corner_id;
-  data |= corner_v << 2;
-  data |= jit_v << 6;
-  data |= color << 12;
-  data |= (inner) ? (1 << 10) : 0;  /* is inner vert */
-  data |= (emboss) ? (1 << 11) : 0; /* is emboss vert */
-  return data;
+  uint32_t *data = static_cast<uint32_t *>(GPU_vertbuf_raw_step(vflag_step));
+  *data = d;
+}
+
+static uint32_t set_roundbox_vertex(GPUVertBufRaw *vflag_step,
+                                    int corner_id,
+                                    int corner_v,
+                                    int jit_v,
+                                    bool inner,
+                                    bool emboss,
+                                    int color)
+{
+  uint32_t *data = static_cast<uint32_t *>(GPU_vertbuf_raw_step(vflag_step));
+  *data = corner_id;
+  *data |= corner_v << 2;
+  *data |= jit_v << 6;
+  *data |= color << 12;
+  *data |= (inner) ? (1 << 10) : 0;  /* is inner vert */
+  *data |= (emboss) ? (1 << 11) : 0; /* is emboss vert */
+  return *data;
 }
 
 gpu::Batch *batch_roundbox_widget_get()
@@ -474,33 +487,32 @@ gpu::Batch *batch_roundbox_widget_get()
 gpu::Batch *batch_roundbox_shadow_get()
 {
   if (g_ui_batch_cache.roundbox_shadow == nullptr) {
+    uint32_t last_data;
+    GPUVertBufRaw vflag_step;
     gpu::VertBuf *vbo = GPU_vertbuf_create_with_format(vflag_format());
     const int vcount = (WIDGET_SIZE_MAX + 1) * 2 + 2 + WIDGET_SIZE_MAX;
     GPU_vertbuf_data_alloc(*vbo, vcount);
-    MutableSpan<uint32_t> data = vbo->data<uint32_t>();
-    int i = 0;
+    GPU_vertbuf_attr_get_raw_data(vbo, g_ui_batch_cache.vflag_id, &vflag_step);
 
     for (int c = 0; c < 4; c++) {
       for (int a = 0; a < WIDGET_CURVE_RESOLU; a++) {
-        data[i++] = roundbox_vertex_data(c, a, NO_AA, true, false, INNER);
-        data[i++] = roundbox_vertex_data(c, a, NO_AA, false, false, INNER);
+        set_roundbox_vertex(&vflag_step, c, a, NO_AA, true, false, INNER);
+        set_roundbox_vertex(&vflag_step, c, a, NO_AA, false, false, INNER);
       }
     }
     /* close loop */
-    data[i++] = roundbox_vertex_data(0, 0, NO_AA, true, false, INNER);
-    const uint32_t last_data = roundbox_vertex_data(0, 0, NO_AA, false, false, INNER);
-    data[i++] = last_data;
+    last_data = set_roundbox_vertex(&vflag_step, 0, 0, NO_AA, true, false, INNER);
+    last_data = set_roundbox_vertex(&vflag_step, 0, 0, NO_AA, false, false, INNER);
     /* restart */
-    data[i++] = last_data;
-    data[i++] = roundbox_vertex_data(0, 0, NO_AA, true, false, INNER);
+    set_roundbox_vertex_data(&vflag_step, last_data);
+    set_roundbox_vertex(&vflag_step, 0, 0, NO_AA, true, false, INNER);
     /* filled */
     for (int c1 = 0, c2 = 3; c1 < 2; c1++, c2--) {
       for (int a1 = 0, a2 = WIDGET_CURVE_RESOLU - 1; a2 >= 0; a1++, a2--) {
-        data[i++] = roundbox_vertex_data(c1, a1, NO_AA, true, false, INNER);
-        data[i++] = roundbox_vertex_data(c2, a2, NO_AA, true, false, INNER);
+        set_roundbox_vertex(&vflag_step, c1, a1, NO_AA, true, false, INNER);
+        set_roundbox_vertex(&vflag_step, c2, a2, NO_AA, true, false, INNER);
       }
     }
-    BLI_assert(i == vcount);
     g_ui_batch_cache.roundbox_shadow = GPU_batch_create_ex(
         GPU_PRIM_TRI_STRIP, vbo, nullptr, GPU_BATCH_OWNS_VBO);
     gpu_batch_presets_register(g_ui_batch_cache.roundbox_shadow);
@@ -2162,14 +2174,6 @@ static void widget_draw_text_ime_underline(const uiFontStyle *fstyle,
 }
 #endif /* WITH_INPUT_IME */
 
-/* Text selection uses a lower opacity than the item color.
- * See #163741 for details. */
-static void widget_text_selection_color(const uiWidgetColors *wcol, uchar color[4])
-{
-  copy_v4_v4_uchar(color, wcol->item);
-  color[3] = 51;
-}
-
 static void widget_draw_textbox(const uiFontStyle *fstyle,
                                 const uiWidgetColors *wcol,
                                 Button *but,
@@ -2321,9 +2325,7 @@ static void widget_draw_textbox(const uiFontStyle *fstyle,
       const uint pos = GPU_vertformat_attr_add(
           immVertexFormat(), "pos", gpu::VertAttrType::SFLOAT_32_32);
       immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
-      uchar selection_color[4];
-      widget_text_selection_color(wcol, selection_color);
-      immUniformColor4ubv(selection_color);
+      immUniformColor4ubv(wcol->item);
       const StringRef line = lines[selection.line];
       const Vector<Bounds<int>> boxes = BLF_str_selection_boxes(
           fstyle->uifont_id,
@@ -2542,7 +2544,6 @@ static void widget_draw_text(const uiFontStyle *fstyle,
 
 #ifdef WITH_INPUT_IME
   const wmIMEData *ime_data;
-  std::string ime_drawstr;
 #endif
 
   fontstyle_set(fstyle);
@@ -2575,6 +2576,7 @@ static void widget_draw_text(const uiFontStyle *fstyle,
       drawstr_left_len = INT_MAX;
 
 #ifdef WITH_INPUT_IME
+      /* FIXME: IME is modifying `const char *drawstr`! */
       ime_data = button_ime_data_get(but);
 
       if (ime_data && !ime_data->composite.empty()) {
@@ -2588,8 +2590,8 @@ static void widget_draw_text(const uiFontStyle *fstyle,
                      but->editstr,
                      ime_data->composite.c_str(),
                      but->editstr + but->pos);
-        ime_drawstr = tmp_drawstr;
-        drawstr = ime_drawstr.c_str();
+        but->drawstr = tmp_drawstr;
+        drawstr = but->drawstr.c_str();
       }
       else
 #endif
@@ -2636,9 +2638,7 @@ static void widget_draw_text(const uiFontStyle *fstyle,
       uint pos = GPU_vertformat_attr_add(
           immVertexFormat(), "pos", gpu::VertAttrType::SFLOAT_32_32);
       immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
-      uchar selection_color[4];
-      widget_text_selection_color(wcol, selection_color);
-      immUniformColor4ubv(selection_color);
+      immUniformColor4ubv(wcol->item);
       const auto boxes = BLF_str_selection_boxes(
           fstyle->uifont_id,
           drawstr + but->ofs,
@@ -2915,10 +2915,10 @@ static void widget_draw_multiline_text(const uiFontStyle *fstyle,
 
   float ymax = rect->ymax - padding;
   rcti line_rect = *rect;
-  int scissors[4];
-  GPU_scissor_get(scissors);
-  int scissors_ymin = scissors[1];
-  int scissors_ymax = scissors_ymin + scissors[3];
+  int sccissors[4];
+  GPU_scissor_get(sccissors);
+  int sccisors_ymin = sccissors[1];
+  int sccisors_ymax = sccisors_ymin + sccissors[3];
 
   for (const int i : multiline_label->wrap_cache->wrapped_lines.index_range().take_front(lines)) {
     StringRef line = multiline_label->wrap_cache->wrapped_lines[i];
@@ -2926,11 +2926,11 @@ static void widget_draw_multiline_text(const uiFontStyle *fstyle,
     ymax -= line_height;
     line_rect.ymin = ymax;
     /* Break when there is not more space to draw. */
-    if (line_rect.ymax < scissors_ymin) {
+    if (line_rect.ymax < sccisors_ymin) {
       break;
     }
     /* Skip the line if the line is not in visible bounds. */
-    if (line_rect.ymin > scissors_ymax) {
+    if (line_rect.ymin > sccisors_ymax) {
       continue;
     }
     if (i < (lines - 1) || total_lines == lines) {
@@ -3210,9 +3210,6 @@ static void widget_draw_text_icon(const uiFontStyle *fstyle,
   /* Text-box wraps content in lines, skip clipping text.  */
   if (but->type == ButtonType::TextBox) {
   }
-  else if (button_label_is_markdown(but) || button_label_is_multiline(but)) {
-    /* Multi-line and markdown labels manage their own wrapping. */
-  }
   else if (but->text_direction != TextDirection::Default) {
     /* Do not clip vertical text.  */
   }
@@ -3243,9 +3240,6 @@ static void widget_draw_text_icon(const uiFontStyle *fstyle,
   else if (button_label_is_multiline(but)) {
     widget_draw_multiline_text(fstyle, wcol, but, rect);
   }
-  else if (button_label_is_markdown(but)) {
-    label_markdown_draw(static_cast<const ButtonLabel *>(but), wcol->text, rect);
-  }
   else if (but->type == ButtonType::TextBox) {
     widget_draw_textbox(fstyle, wcol, but, rect);
   }
@@ -3269,26 +3263,22 @@ static void widget_draw_text_icon(const uiFontStyle *fstyle,
  * Adjust widget display based on animated, driven, overridden ... etc.
  * \{ */
 
-/* Put all widget colors on reduced alpha. */
-static void widget_color_disabled(uiWidgetColors &wcol, const WidgetStateInfo *state)
-{
-  const float factor = widget_alpha_factor(state);
-  wcol.outline[3] *= factor;
-  wcol.outline_sel[3] *= factor;
-  wcol.inner[3] *= factor;
-  wcol.inner_sel[3] *= factor;
-  wcol.item[3] *= factor;
-  wcol.text[3] *= factor;
-  wcol.text_sel[3] *= factor;
-}
-
-/* Put all widget colors on reduced alpha, to avoid overriding theme colors use local storage. */
-static void widget_type_color_disabled(WidgetType *wt, const WidgetStateInfo *state)
+/* put all widget colors on half alpha, use local storage */
+static void widget_color_disabled(WidgetType *wt, const WidgetStateInfo *state)
 {
   static uiWidgetColors wcol_theme_s;
 
   wcol_theme_s = *wt->wcol_theme;
-  widget_color_disabled(wcol_theme_s, state);
+
+  const float factor = widget_alpha_factor(state);
+
+  wcol_theme_s.outline[3] *= factor;
+  wcol_theme_s.outline_sel[3] *= factor;
+  wcol_theme_s.inner[3] *= factor;
+  wcol_theme_s.inner_sel[3] *= factor;
+  wcol_theme_s.item[3] *= factor;
+  wcol_theme_s.text[3] *= factor;
+  wcol_theme_s.text_sel[3] *= factor;
 
   wt->wcol_theme = &wcol_theme_s;
 }
@@ -3341,7 +3331,7 @@ static void widget_state(WidgetType *wt, const WidgetStateInfo *state, EmbossTyp
     wt->wcol_theme = &btheme->tui.wcol_list_item;
 
     if (state->but_flag & (BUT_DISABLED | BUT_INACTIVE | UI_SEARCH_FILTER_NO_MATCH)) {
-      widget_type_color_disabled(wt, state);
+      widget_color_disabled(wt, state);
     }
   }
 
@@ -3349,9 +3339,6 @@ static void widget_state(WidgetType *wt, const WidgetStateInfo *state, EmbossTyp
   if (state->draw_as_link) {
     theme::get_color_4ubv(TH_LINK, wt->wcol.text);
     theme::get_color_4ubv(TH_LINK, wt->wcol.text_sel);
-    if (state->but_flag & (BUT_DISABLED | BUT_INACTIVE | UI_SEARCH_FILTER_NO_MATCH)) {
-      widget_color_disabled(wt->wcol, state);
-    }
   }
   const uchar *color_blend = widget_color_blend_from_flags(wcol_state, state, emboss);
 
@@ -3386,19 +3373,14 @@ static void widget_state(WidgetType *wt, const WidgetStateInfo *state, EmbossTyp
   }
 
   if (state->but_flag & BUT_REDALERT) {
-    uchar red[4];
-    theme::get_color_4ubv(TH_REDALERT, red);
-    /* Alpha is used to blend between the original color (text, background) and alert theme. */
-    const float red_alpha = float(red[3]) / 255.0f;
-
-    /* In regular widgets, tint the background and outline. */
     if (wt->draw && emboss != EmbossType::None) {
-      color_blend_v3_v3(wt->wcol.outline, red, red_alpha);
-      color_blend_v3_v3(wt->wcol.inner, red, red_alpha);
+      theme::get_color_3ubv(TH_REDALERT, wt->wcol.inner);
     }
-    /* Text such as labels or widgets without emboss. Tint the text only. */
     else {
-      color_blend_v3_v3(wt->wcol.text, red, red_alpha);
+      uchar red[4];
+      theme::get_color_3ubv(TH_REDALERT, red);
+      color_mul_hsl_v3(red, 1.0f, 1.5f, 1.5f);
+      color_blend_v3_v3(wt->wcol.text, red, 0.5f);
     }
   }
 
@@ -4814,7 +4796,6 @@ static void widget_numslider(Button *but,
 
     round_box_edges(&wtb1, roundboxalign_slider, &rect1, rad);
     wtb1.draw_outline = false;
-    wtb1.draw_emboss = false;
     widgetbase_set_uniform_discard_factor(&wtb1, factor_discard);
     widgetbase_draw(&wtb1, wcol);
 
@@ -4828,7 +4809,6 @@ static void widget_numslider(Button *but,
   /* Outline. */
   wtb.draw_outline = true;
   wtb.draw_inner = false;
-  wtb.draw_emboss = false;
   widgetbase_draw(&wtb, wcol);
 
   /* Add space at either side of the button so text aligns with number-buttons
@@ -4901,11 +4881,11 @@ static void widget_swatch(Button *but,
   /* Now we reduce alpha of the inner color (i.e. the color shown)
    * so that this setting can look grayed out, while retaining
    * the checkerboard (for transparent values). This is needed
-   * here as the effects of widget_type_color_disabled() are overwritten. */
+   * here as the effects of widget_color_disabled() are overwritten. */
   col[3] *= widget_alpha_factor(state);
 
   widgetbase_draw_color(&wtb, wcol, col, show_alpha_checkers);
-  if (color_but->is_palette_color &&
+  if (color_but->is_pallete_color &&
       (id_cast<Palette *>(but->rnapoin.owner_id))->active_color == color_but->palette_color_index)
   {
     const float width = rect->xmax - rect->xmin;
@@ -5258,12 +5238,9 @@ static void widget_state_label(WidgetType *wt, const WidgetStateInfo *state, Emb
 
   if (state->but_flag & BUT_REDALERT) {
     uchar red[4];
-    theme::get_color_4ubv(TH_REDALERT, red);
-
-    /* Alert color's alpha is used to blend between the text and alert tint.
-     * This ensures the text be always readable, lighter or darker depending on the theme. */
-    float red_alpha = float(red[3]) / 255.0f;
-    color_blend_v3_v3(wt->wcol.text, red, red_alpha);
+    theme::get_color_3ubv(TH_REDALERT, red);
+    color_mul_hsl_v3(red, 1.0f, 1.5f, 1.5f);
+    color_blend_v3_v3(wt->wcol.text, red, 0.5f);
   }
 }
 
@@ -6085,7 +6062,7 @@ void draw_button(const bContext *C, ARegion *region, uiStyle *style, Button *but
   if (but->emboss != EmbossType::Pulldown) {
     if (but->flag & (BUT_DISABLED | BUT_INACTIVE | UI_SEARCH_FILTER_NO_MATCH)) {
       use_alpha_blend = true;
-      widget_type_color_disabled(wt, &state);
+      widget_color_disabled(wt, &state);
     }
   }
 

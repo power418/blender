@@ -65,10 +65,6 @@ static void viewroll_apply(ViewOpsData *vod, int x, int y)
   const float current_position[2] = {float(x), float(y)};
   float angle = BLI_dial_angle(vod->init.dial, current_position);
 
-  if (vod->rv3d->persp == RV3D_CAMOB && (vod->rv3d->rflag & RV3D_FLIP_X) != 0) {
-    angle = -angle;
-  }
-
   if (angle != 0.0f) {
     view_roll_angle(
         vod->region, vod->rv3d->viewquat, vod->init.quat, vod->init.mousevec, angle, false);
@@ -213,10 +209,6 @@ static wmOperatorStatus viewroll_exec(bContext *C, wmOperator *op)
   const int smooth_viewtx = WM_operator_smooth_viewtx_get(op);
 
   if (type == V3D_VIEW_STEPLEFT) {
-    angle = -angle;
-  }
-
-  if (vod->rv3d->persp == RV3D_CAMOB && (vod->rv3d->rflag & RV3D_FLIP_X) != 0) {
     angle = -angle;
   }
 

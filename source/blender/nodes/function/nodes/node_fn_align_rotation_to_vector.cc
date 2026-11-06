@@ -235,8 +235,7 @@ static void node_rna(StructRNA *srna)
                     "Axis",
                     "Axis to align to the vector",
                     axis_items,
-                    NOD_inline_enum_accessors(custom1),
-                    int(math::Axis::Z));
+                    NOD_inline_enum_accessors(custom1));
 
   static const EnumPropertyItem pivot_axis_items[] = {
       {FN_NODE_ALIGN_EULER_TO_VECTOR_PIVOT_AXIS_AUTO,

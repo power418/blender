@@ -54,13 +54,13 @@ const Cache *active_cache_get(const SculptSession &ss)
 
 static bool mode_enabled(const Paint &paint, const Brush *br, const eAutomasking_flag mode)
 {
-  eAutomasking_flag automasking = paint.mesh_automasking_settings->flags;
+  int automasking = paint.mesh_automasking_settings->flags;
 
   if (br) {
     automasking |= br->mesh_automasking_settings->flags;
   }
 
-  return automasking & mode;
+  return eAutomasking_flag(automasking) & mode;
 }
 
 bool is_enabled(const Paint &paint, const Object &object, const Brush *br)
@@ -93,11 +93,10 @@ bool is_enabled(const Paint &paint, const Object &object, const Brush *br)
   return false;
 }
 
-static eAutomasking_flag calc_effective_bits(const Paint &paint, const Brush *brush)
+static int calc_effective_bits(const Paint &paint, const Brush *brush)
 {
   if (brush) {
-    eAutomasking_flag flags = paint.mesh_automasking_settings->flags |
-                              brush->mesh_automasking_settings->flags;
+    int flags = paint.mesh_automasking_settings->flags | brush->mesh_automasking_settings->flags;
 
     /* Check if we are using brush cavity settings. */
     if (brush->mesh_automasking_settings->flags & BRUSH_AUTOMASKING_CAVITY_ALL) {
@@ -161,14 +160,12 @@ static bool is_constrained_by_radius(const Brush *br)
   return false;
 }
 
-/* Fetch the propagation_steps value, preferring the brush level value over the global sculpt tool
+/* Fetch the propogation_steps value, preferring the brush level value over the global sculpt tool
  * value. */
 static int boundary_propagation_steps(const Paint &paint, const Brush *brush)
 {
-  return brush && (flag_is_set(brush->mesh_automasking_settings->flags,
-                               BRUSH_AUTOMASKING_BOUNDARY_EDGES) ||
-                   flag_is_set(brush->mesh_automasking_settings->flags,
-                               BRUSH_AUTOMASKING_BOUNDARY_FACE_SETS)) ?
+  return brush && brush->mesh_automasking_settings->flags &
+                      (BRUSH_AUTOMASKING_BOUNDARY_EDGES | BRUSH_AUTOMASKING_BOUNDARY_FACE_SETS) ?
              brush->mesh_automasking_settings->boundary_edges_propagation_steps :
              paint.mesh_automasking_settings->boundary_edges_propagation_steps;
 }
@@ -176,16 +173,14 @@ static int boundary_propagation_steps(const Paint &paint, const Brush *brush)
 /* Determine if the given automasking settings require values to be precomputed and cached. */
 static bool needs_factors_cache(const Paint &paint, const Brush *brush)
 {
-  const eAutomasking_flag automasking_flags = calc_effective_bits(paint, brush);
+  const int automasking_flags = calc_effective_bits(paint, brush);
 
-  if (flag_is_set(automasking_flags, BRUSH_AUTOMASKING_TOPOLOGY) && brush &&
-      is_constrained_by_radius(brush))
-  {
+  if (automasking_flags & BRUSH_AUTOMASKING_TOPOLOGY && brush && is_constrained_by_radius(brush)) {
     return true;
   }
 
-  if (flag_is_set(automasking_flags, BRUSH_AUTOMASKING_BOUNDARY_EDGES) ||
-      flag_is_set(automasking_flags, BRUSH_AUTOMASKING_BOUNDARY_FACE_SETS))
+  if (automasking_flags &
+      (BRUSH_AUTOMASKING_BOUNDARY_EDGES | BRUSH_AUTOMASKING_BOUNDARY_FACE_SETS))
   {
     return boundary_propagation_steps(paint, brush) != 1;
   }
@@ -258,9 +253,7 @@ static float calc_cavity_factor(const Cache &automasking, float factor)
   factor = factor * sign * 0.5f + 0.5f;
   CLAMP(factor, 0.0f, 1.0f);
 
-  return flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_CAVITY_INVERTED) ?
-             1.0f - factor :
-             factor;
+  return (automasking.settings.flags & BRUSH_AUTOMASKING_CAVITY_INVERTED) ? 1.0f - factor : factor;
 }
 
 struct AccumulatedVert {
@@ -573,10 +566,10 @@ static void calc_blurred_cavity_bmesh(const Cache &automasking,
 
 static float process_cavity_factor(const Cache &automasking, float factor)
 {
-  const bool inverted = flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_CAVITY_INVERTED);
+  bool inverted = automasking.settings.flags & BRUSH_AUTOMASKING_CAVITY_INVERTED;
 
-  if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_CAVITY_ALL) &&
-      flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_CAVITY_USE_CURVE))
+  if ((automasking.settings.flags & BRUSH_AUTOMASKING_CAVITY_ALL) &&
+      (automasking.settings.flags & BRUSH_AUTOMASKING_CAVITY_USE_CURVE))
   {
     factor = inverted ? 1.0f - factor : factor;
     factor = BKE_curvemapping_evaluateF(automasking.settings.cavity_curve, 0, factor);
@@ -643,8 +636,8 @@ void calc_vert_factors(const Depsgraph &depsgraph,
   const VArraySpan face_sets = *attributes.lookup<int>(".sculpt_face_set", bke::AttrDomain::Face);
   const VArraySpan hide_poly = *attributes.lookup<bool>(".hide_poly", bke::AttrDomain::Face);
   Span<float3> orig_normals;
-  if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BRUSH_NORMAL) ||
-      flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_VIEW_NORMAL))
+  if (automasking.settings.flags &
+      (BRUSH_AUTOMASKING_BRUSH_NORMAL | BRUSH_AUTOMASKING_VIEW_NORMAL))
   {
     /* Weight & Vertex paint do not get "original" normals */
     if (object.mode == OB_MODE_SCULPT) {
@@ -662,7 +655,7 @@ void calc_vert_factors(const Depsgraph &depsgraph,
     /* Since brush normal mode depends on the current mirror symmetry pass
      * it is not folded into the factor cache (when it exists). */
     if ((ss.cache || ss.filter_cache) &&
-        flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BRUSH_NORMAL))
+        (automasking.settings.flags & BRUSH_AUTOMASKING_BRUSH_NORMAL))
     {
       factors[i] *= calc_brush_normal_factor(automasking, object, normal);
     }
@@ -682,9 +675,9 @@ void calc_vert_factors(const Depsgraph &depsgraph,
       continue;
     }
 
-    bool do_occlusion = flag_is_set(automasking.settings.flags,
-                                    BRUSH_AUTOMASKING_VIEW_OCCLUSION) &&
-                        flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_VIEW_NORMAL);
+    bool do_occlusion = (automasking.settings.flags &
+                         (BRUSH_AUTOMASKING_VIEW_OCCLUSION | BRUSH_AUTOMASKING_VIEW_NORMAL)) ==
+                        (BRUSH_AUTOMASKING_VIEW_OCCLUSION | BRUSH_AUTOMASKING_VIEW_NORMAL);
     if (do_occlusion) {
       const bool occluded = calc_view_occlusion_factor(
           depsgraph, const_cast<Cache &>(automasking), object, vert, vert_positions[vert]);
@@ -698,7 +691,7 @@ void calc_vert_factors(const Depsgraph &depsgraph,
      * symmetry pass instead */
     const int current_symmetry_pass = ss.cache ? ss.cache->mirror_symmetry_pass : 0;
     if (!automasking.settings.topology_use_brush_limit &&
-        flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_TOPOLOGY) &&
+        automasking.settings.flags & BRUSH_AUTOMASKING_TOPOLOGY &&
         islands::vert_id_get(ss, vert) !=
             automasking.settings.initial_island_nr[current_symmetry_pass])
     {
@@ -706,7 +699,7 @@ void calc_vert_factors(const Depsgraph &depsgraph,
       continue;
     }
 
-    if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_FACE_SETS)) {
+    if (automasking.settings.flags & BRUSH_AUTOMASKING_FACE_SETS) {
       if (automasking.settings.initial_face_set != face_set_none_id &&
           !face_set::vert_has_face_set(
               vert_to_face_map, face_sets, vert, automasking.settings.initial_face_set))
@@ -716,14 +709,14 @@ void calc_vert_factors(const Depsgraph &depsgraph,
       }
     }
 
-    if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BOUNDARY_EDGES)) {
+    if (automasking.settings.flags & BRUSH_AUTOMASKING_BOUNDARY_EDGES) {
       if (boundary::vert_is_boundary(vert_to_face_map, hide_poly, boundary_verts, vert)) {
         factors[i] = 0.0f;
         continue;
       }
     }
 
-    if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BOUNDARY_FACE_SETS)) {
+    if (automasking.settings.flags & BRUSH_AUTOMASKING_BOUNDARY_FACE_SETS) {
       bool ignore = ss.cache && ss.cache->brush &&
                     ss.cache->brush->sculpt_brush_type == SCULPT_BRUSH_TYPE_DRAW_FACE_SETS &&
                     (automasking.settings.initial_face_set == face_set_none_id ||
@@ -737,26 +730,26 @@ void calc_vert_factors(const Depsgraph &depsgraph,
     }
 
     if ((ss.cache || ss.filter_cache) &&
-        flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_VIEW_NORMAL))
+        (automasking.settings.flags & BRUSH_AUTOMASKING_VIEW_NORMAL))
     {
       factors[i] *= calc_view_normal_factor(automasking, object, normal);
     }
 
-    if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_CAVITY_ALL)) {
+    if (automasking.settings.flags & BRUSH_AUTOMASKING_CAVITY_ALL) {
       BLI_assert(automasking.cavity_factor[vert] != -1.0f);
       factors[i] *= process_cavity_factor(automasking, automasking.cavity_factor[vert]);
     }
   }
 }
 
-void calc_interpolated_face_factors(const Depsgraph &depsgraph,
-                                    const Object &object,
-                                    const OffsetIndices<int> faces,
-                                    const Span<int> corner_verts,
-                                    const Cache &automasking,
-                                    const bke::pbvh::MeshNode & /*node*/,
-                                    const Span<int> face_indices,
-                                    const MutableSpan<float> factors)
+void calc_face_factors(const Depsgraph &depsgraph,
+                       const Object &object,
+                       const OffsetIndices<int> faces,
+                       const Span<int> corner_verts,
+                       const Cache &automasking,
+                       const bke::pbvh::MeshNode & /*node*/,
+                       const Span<int> face_indices,
+                       const MutableSpan<float> factors)
 {
   PRF_scope(ProfileCategory::Editor);
   const SculptSession &ss = *object.runtime->sculpt_session;
@@ -778,7 +771,7 @@ void calc_interpolated_face_factors(const Depsgraph &depsgraph,
       /* Since brush normal mode depends on the current mirror symmetry pass
        * it is not folded into the factor cache (when it exists). */
       if ((ss.cache || ss.filter_cache) &&
-          flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BRUSH_NORMAL))
+          (automasking.settings.flags & BRUSH_AUTOMASKING_BRUSH_NORMAL))
       {
         factor *= calc_brush_normal_factor(automasking, object, vert_normals[vert]);
       }
@@ -789,7 +782,7 @@ void calc_interpolated_face_factors(const Depsgraph &depsgraph,
       if (!automasking.factor.is_empty()) {
         float cached_factor = automasking.factor[vert];
 
-        if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_CAVITY_ALL)) {
+        if (automasking.settings.flags & BRUSH_AUTOMASKING_CAVITY_ALL) {
           BLI_assert(automasking.cavity_factor[vert] != -1.0f);
           cached_factor *= process_cavity_factor(automasking, automasking.cavity_factor[vert]);
         }
@@ -798,9 +791,9 @@ void calc_interpolated_face_factors(const Depsgraph &depsgraph,
         continue;
       }
 
-      bool do_occlusion = flag_is_set(automasking.settings.flags,
-                                      BRUSH_AUTOMASKING_VIEW_OCCLUSION) &&
-                          flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_VIEW_NORMAL);
+      bool do_occlusion = (automasking.settings.flags &
+                           (BRUSH_AUTOMASKING_VIEW_OCCLUSION | BRUSH_AUTOMASKING_VIEW_NORMAL)) ==
+                          (BRUSH_AUTOMASKING_VIEW_OCCLUSION | BRUSH_AUTOMASKING_VIEW_NORMAL);
       if (do_occlusion) {
         const bool occluded = calc_view_occlusion_factor(
             depsgraph, const_cast<Cache &>(automasking), object, vert, vert_positions[vert]);
@@ -814,7 +807,7 @@ void calc_interpolated_face_factors(const Depsgraph &depsgraph,
        * symmetry pass instead */
       const int current_symmetry_pass = ss.cache ? ss.cache->mirror_symmetry_pass : 0;
       if (!automasking.settings.topology_use_brush_limit &&
-          flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_TOPOLOGY) &&
+          automasking.settings.flags & BRUSH_AUTOMASKING_TOPOLOGY &&
           islands::vert_id_get(ss, vert) !=
               automasking.settings.initial_island_nr[current_symmetry_pass])
       {
@@ -822,7 +815,7 @@ void calc_interpolated_face_factors(const Depsgraph &depsgraph,
         continue;
       }
 
-      if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_FACE_SETS)) {
+      if (automasking.settings.flags & BRUSH_AUTOMASKING_FACE_SETS) {
         if (automasking.settings.initial_face_set != face_set_none_id &&
             !face_set::vert_has_face_set(
                 vert_to_face_map, face_sets, vert, automasking.settings.initial_face_set))
@@ -832,14 +825,14 @@ void calc_interpolated_face_factors(const Depsgraph &depsgraph,
         }
       }
 
-      if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BOUNDARY_EDGES)) {
+      if (automasking.settings.flags & BRUSH_AUTOMASKING_BOUNDARY_EDGES) {
         if (boundary::vert_is_boundary(vert_to_face_map, hide_poly, boundary_verts, vert)) {
           factor = 0.0f;
           continue;
         }
       }
 
-      if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BOUNDARY_FACE_SETS)) {
+      if (automasking.settings.flags & BRUSH_AUTOMASKING_BOUNDARY_FACE_SETS) {
         bool ignore = ss.cache && ss.cache->brush &&
                       ss.cache->brush->sculpt_brush_type == SCULPT_BRUSH_TYPE_DRAW_FACE_SETS &&
                       (automasking.settings.initial_face_set == face_set_none_id ||
@@ -853,12 +846,12 @@ void calc_interpolated_face_factors(const Depsgraph &depsgraph,
       }
 
       if ((ss.cache || ss.filter_cache) &&
-          flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_VIEW_NORMAL))
+          (automasking.settings.flags & BRUSH_AUTOMASKING_VIEW_NORMAL))
       {
         factor *= calc_view_normal_factor(automasking, object, vert_normals[vert]);
       }
 
-      if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_CAVITY_ALL)) {
+      if (automasking.settings.flags & BRUSH_AUTOMASKING_CAVITY_ALL) {
         BLI_assert(automasking.cavity_factor[vert] != -1.0f);
         factor *= process_cavity_factor(automasking, automasking.cavity_factor[vert]);
       }
@@ -887,8 +880,8 @@ void calc_grids_factors(const Depsgraph &depsgraph,
   const CCGKey key = BKE_subdiv_ccg_key_top_level(subdiv_ccg);
 
   Span<float3> orig_normals;
-  if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BRUSH_NORMAL) ||
-      flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_VIEW_NORMAL))
+  if (automasking.settings.flags &
+      (BRUSH_AUTOMASKING_BRUSH_NORMAL | BRUSH_AUTOMASKING_VIEW_NORMAL))
   {
     if (std::optional<OrigPositionData> orig_data = orig_position_data_lookup_grids(object, node))
     {
@@ -911,7 +904,7 @@ void calc_grids_factors(const Depsgraph &depsgraph,
       /* Since brush normal mode depends on the current mirror symmetry pass
        * it is not folded into the factor cache (when it exists). */
       if ((ss.cache || ss.filter_cache) &&
-          flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BRUSH_NORMAL))
+          (automasking.settings.flags & BRUSH_AUTOMASKING_BRUSH_NORMAL))
       {
         factors[node_vert] *= calc_brush_normal_factor(automasking, object, normal);
       }
@@ -922,7 +915,7 @@ void calc_grids_factors(const Depsgraph &depsgraph,
       if (!automasking.factor.is_empty()) {
         float cached_factor = automasking.factor[vert];
 
-        if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_CAVITY_ALL)) {
+        if (automasking.settings.flags & BRUSH_AUTOMASKING_CAVITY_ALL) {
           BLI_assert(automasking.cavity_factor[vert] != -1.0f);
           cached_factor *= process_cavity_factor(automasking, automasking.cavity_factor[vert]);
         }
@@ -931,9 +924,9 @@ void calc_grids_factors(const Depsgraph &depsgraph,
         continue;
       }
 
-      bool do_occlusion = flag_is_set(automasking.settings.flags,
-                                      BRUSH_AUTOMASKING_VIEW_OCCLUSION) &&
-                          flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_VIEW_NORMAL);
+      bool do_occlusion = (automasking.settings.flags &
+                           (BRUSH_AUTOMASKING_VIEW_OCCLUSION | BRUSH_AUTOMASKING_VIEW_NORMAL)) ==
+                          (BRUSH_AUTOMASKING_VIEW_OCCLUSION | BRUSH_AUTOMASKING_VIEW_NORMAL);
       if (do_occlusion) {
         const bool occluded = calc_view_occlusion_factor(
             depsgraph, const_cast<Cache &>(automasking), object, vert, subdiv_ccg.positions[vert]);
@@ -947,7 +940,7 @@ void calc_grids_factors(const Depsgraph &depsgraph,
        * symmetry pass instead */
       const int current_symmetry_pass = ss.cache ? ss.cache->mirror_symmetry_pass : 0;
       if (!automasking.settings.topology_use_brush_limit &&
-          flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_TOPOLOGY) &&
+          automasking.settings.flags & BRUSH_AUTOMASKING_TOPOLOGY &&
           islands::vert_id_get(ss, vert) !=
               automasking.settings.initial_island_nr[current_symmetry_pass])
       {
@@ -955,14 +948,14 @@ void calc_grids_factors(const Depsgraph &depsgraph,
         continue;
       }
 
-      if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_FACE_SETS)) {
+      if (automasking.settings.flags & BRUSH_AUTOMASKING_FACE_SETS) {
         if (!ELEM(automasking.settings.initial_face_set, face_set_none_id, grid_face_set)) {
           factors[node_vert] = 0.0f;
           continue;
         }
       }
 
-      if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BOUNDARY_EDGES)) {
+      if (automasking.settings.flags & BRUSH_AUTOMASKING_BOUNDARY_EDGES) {
         if (boundary::vert_is_boundary(faces,
                                        corner_verts,
                                        boundary_verts,
@@ -975,7 +968,7 @@ void calc_grids_factors(const Depsgraph &depsgraph,
         }
       }
 
-      if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BOUNDARY_FACE_SETS)) {
+      if (automasking.settings.flags & BRUSH_AUTOMASKING_BOUNDARY_FACE_SETS) {
         bool ignore = ss.cache && ss.cache->brush &&
                       ss.cache->brush->sculpt_brush_type == SCULPT_BRUSH_TYPE_DRAW_FACE_SETS &&
                       (automasking.settings.initial_face_set == face_set_none_id ||
@@ -994,12 +987,12 @@ void calc_grids_factors(const Depsgraph &depsgraph,
       }
 
       if ((ss.cache || ss.filter_cache) &&
-          flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_VIEW_NORMAL))
+          (automasking.settings.flags & BRUSH_AUTOMASKING_VIEW_NORMAL))
       {
         factors[node_vert] *= calc_view_normal_factor(automasking, object, normal);
       }
 
-      if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_CAVITY_ALL)) {
+      if (automasking.settings.flags & BRUSH_AUTOMASKING_CAVITY_ALL) {
         BLI_assert(automasking.cavity_factor[vert] != -1.0f);
         factors[node_vert] *= process_cavity_factor(automasking, automasking.cavity_factor[vert]);
       }
@@ -1021,8 +1014,8 @@ void calc_vert_factors(const Depsgraph &depsgraph,
       &bm.pdata, CD_PROP_INT32, ".sculpt_face_set");
 
   Array<float3> orig_normals;
-  if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BRUSH_NORMAL) ||
-      flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_VIEW_NORMAL))
+  if (automasking.settings.flags &
+      (BRUSH_AUTOMASKING_BRUSH_NORMAL | BRUSH_AUTOMASKING_VIEW_NORMAL))
   {
     orig_position_data_gather_bmesh(*ss.bm_log, verts, {}, orig_normals);
   }
@@ -1036,7 +1029,7 @@ void calc_vert_factors(const Depsgraph &depsgraph,
     /* Since brush normal mode depends on the current mirror symmetry pass
      * it is not folded into the factor cache (when it exists). */
     if ((ss.cache || ss.filter_cache) &&
-        flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BRUSH_NORMAL))
+        (automasking.settings.flags & BRUSH_AUTOMASKING_BRUSH_NORMAL))
     {
       factors[i] *= calc_brush_normal_factor(automasking, object, normal);
     }
@@ -1056,9 +1049,9 @@ void calc_vert_factors(const Depsgraph &depsgraph,
       continue;
     }
 
-    bool do_occlusion = flag_is_set(automasking.settings.flags,
-                                    BRUSH_AUTOMASKING_VIEW_OCCLUSION) &&
-                        flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_VIEW_NORMAL);
+    bool do_occlusion = (automasking.settings.flags &
+                         (BRUSH_AUTOMASKING_VIEW_OCCLUSION | BRUSH_AUTOMASKING_VIEW_NORMAL)) ==
+                        (BRUSH_AUTOMASKING_VIEW_OCCLUSION | BRUSH_AUTOMASKING_VIEW_NORMAL);
     if (do_occlusion) {
       const bool occluded = calc_view_occlusion_factor(
           depsgraph, const_cast<Cache &>(automasking), object, vert_i, vert->co);
@@ -1072,7 +1065,7 @@ void calc_vert_factors(const Depsgraph &depsgraph,
      * symmetry pass instead */
     const int current_symmetry_pass = ss.cache ? ss.cache->mirror_symmetry_pass : 0;
     if (!automasking.settings.topology_use_brush_limit &&
-        flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_TOPOLOGY) &&
+        automasking.settings.flags & BRUSH_AUTOMASKING_TOPOLOGY &&
         islands::vert_id_get(ss, vert_i) !=
             automasking.settings.initial_island_nr[current_symmetry_pass])
     {
@@ -1080,7 +1073,7 @@ void calc_vert_factors(const Depsgraph &depsgraph,
       continue;
     }
 
-    if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_FACE_SETS)) {
+    if (automasking.settings.flags & BRUSH_AUTOMASKING_FACE_SETS) {
       if (automasking.settings.initial_face_set != face_set_none_id &&
           !face_set::vert_has_face_set(
               face_set_offset, *vert, automasking.settings.initial_face_set))
@@ -1090,14 +1083,14 @@ void calc_vert_factors(const Depsgraph &depsgraph,
       }
     }
 
-    if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BOUNDARY_EDGES)) {
+    if (automasking.settings.flags & BRUSH_AUTOMASKING_BOUNDARY_EDGES) {
       if (boundary::vert_is_boundary(vert)) {
         factors[i] = 0.0f;
         continue;
       }
     }
 
-    if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_BOUNDARY_FACE_SETS)) {
+    if (automasking.settings.flags & BRUSH_AUTOMASKING_BOUNDARY_FACE_SETS) {
       bool ignore = ss.cache && ss.cache->brush &&
                     ss.cache->brush->sculpt_brush_type == SCULPT_BRUSH_TYPE_DRAW_FACE_SETS &&
                     (automasking.settings.initial_face_set == face_set_none_id ||
@@ -1111,12 +1104,12 @@ void calc_vert_factors(const Depsgraph &depsgraph,
     }
 
     if ((ss.cache || ss.filter_cache) &&
-        flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_VIEW_NORMAL))
+        (automasking.settings.flags & BRUSH_AUTOMASKING_VIEW_NORMAL))
     {
       factors[i] *= calc_view_normal_factor(automasking, object, normal);
     }
 
-    if (flag_is_set(automasking.settings.flags, BRUSH_AUTOMASKING_CAVITY_ALL)) {
+    if (automasking.settings.flags & BRUSH_AUTOMASKING_CAVITY_ALL) {
       BLI_assert(automasking.cavity_factor[vert_i] != -1.0f);
       factors[i] *= process_cavity_factor(automasking, automasking.cavity_factor[vert_i]);
     }
@@ -1575,8 +1568,7 @@ static void cache_settings_update(Cache &automasking,
   automasking.settings.flags = calc_effective_bits(paint, brush);
   automasking.settings.initial_face_set = face_set::active_face_set_get(object);
 
-  if (brush && flag_is_set(brush->mesh_automasking_settings->flags, BRUSH_AUTOMASKING_VIEW_NORMAL))
-  {
+  if (brush && (brush->mesh_automasking_settings->flags & BRUSH_AUTOMASKING_VIEW_NORMAL)) {
     automasking.settings.view_normal_limit = brush->mesh_automasking_settings->view_normal_limit;
     automasking.settings.view_normal_falloff =
         brush->mesh_automasking_settings->view_normal_falloff;
@@ -1587,9 +1579,7 @@ static void cache_settings_update(Cache &automasking,
         paint.mesh_automasking_settings->view_normal_falloff;
   }
 
-  if (brush &&
-      flag_is_set(brush->mesh_automasking_settings->flags, BRUSH_AUTOMASKING_BRUSH_NORMAL))
-  {
+  if (brush && (brush->mesh_automasking_settings->flags & BRUSH_AUTOMASKING_BRUSH_NORMAL)) {
     automasking.settings.start_normal_limit = brush->mesh_automasking_settings->start_normal_limit;
     automasking.settings.start_normal_falloff =
         brush->mesh_automasking_settings->start_normal_falloff;
@@ -1600,8 +1590,7 @@ static void cache_settings_update(Cache &automasking,
         paint.mesh_automasking_settings->start_normal_falloff;
   }
 
-  if (brush && flag_is_set(brush->mesh_automasking_settings->flags, BRUSH_AUTOMASKING_CAVITY_ALL))
-  {
+  if (brush && (brush->mesh_automasking_settings->flags & BRUSH_AUTOMASKING_CAVITY_ALL)) {
     automasking.settings.cavity_curve = brush->mesh_automasking_settings->cavity_curve;
     automasking.settings.cavity_factor = brush->mesh_automasking_settings->cavity_factor;
     automasking.settings.cavity_blur_steps = brush->mesh_automasking_settings->cavity_blur_steps;
@@ -1630,8 +1619,8 @@ static void normal_occlusion_automasking_fill(const Depsgraph &depsgraph,
         for (const int vert : range) {
           float f = factors[vert];
 
-          if (flag_is_set(mode, BRUSH_AUTOMASKING_VIEW_NORMAL)) {
-            if (flag_is_set(mode, BRUSH_AUTOMASKING_VIEW_OCCLUSION)) {
+          if (int(mode) & BRUSH_AUTOMASKING_VIEW_NORMAL) {
+            if (int(mode) & BRUSH_AUTOMASKING_VIEW_OCCLUSION) {
               f *= calc_view_occlusion_factor(
                   depsgraph, automasking, ob, vert, vert_positions[vert]);
             }
@@ -1651,8 +1640,8 @@ static void normal_occlusion_automasking_fill(const Depsgraph &depsgraph,
         for (const int vert : range) {
           float f = factors[vert];
 
-          if (flag_is_set(mode, BRUSH_AUTOMASKING_VIEW_NORMAL)) {
-            if (flag_is_set(mode, BRUSH_AUTOMASKING_VIEW_OCCLUSION)) {
+          if (int(mode) & BRUSH_AUTOMASKING_VIEW_NORMAL) {
+            if (int(mode) & BRUSH_AUTOMASKING_VIEW_OCCLUSION) {
               f *= calc_view_occlusion_factor(
                   depsgraph, automasking, ob, vert, subdiv_ccg.positions[vert]);
             }
@@ -1673,8 +1662,8 @@ static void normal_occlusion_automasking_fill(const Depsgraph &depsgraph,
           const BMVert *vert = BM_vert_at_index(&bm, i);
           float f = factors[i];
 
-          if (flag_is_set(mode, BRUSH_AUTOMASKING_VIEW_NORMAL)) {
-            if (flag_is_set(mode, BRUSH_AUTOMASKING_VIEW_OCCLUSION)) {
+          if (int(mode) & BRUSH_AUTOMASKING_VIEW_NORMAL) {
+            if (int(mode) & BRUSH_AUTOMASKING_VIEW_OCCLUSION) {
               f *= calc_view_occlusion_factor(depsgraph, automasking, ob, i, vert->co);
             }
 
@@ -1704,10 +1693,10 @@ std::unique_ptr<Cache> cache_init(const Depsgraph &depsgraph,
   cache_settings_update(*automasking, ob, paint, brush);
   boundary::ensure_boundary_info(ob);
 
-  eAutomasking_flag mode = calc_effective_bits(paint, brush);
+  int mode = calc_effective_bits(paint, brush);
 
   vert_random_access_ensure(ob);
-  if (flag_is_set(mode, BRUSH_AUTOMASKING_TOPOLOGY) && ss.active_vert_index() != -1) {
+  if (mode & BRUSH_AUTOMASKING_TOPOLOGY && ss.active_vert_index() != -1) {
     islands::ensure_cache(ob);
 
     std::array<int, PAINT_SYMM_AREAS> symm_verts = find_all_symm_verts(
@@ -1726,14 +1715,12 @@ std::unique_ptr<Cache> cache_init(const Depsgraph &depsgraph,
 
   const int verts_num = vertex_count_get(ob);
 
-  if (flag_is_set(mode, BRUSH_AUTOMASKING_VIEW_OCCLUSION) &&
-      flag_is_set(mode, BRUSH_AUTOMASKING_VIEW_NORMAL))
-  {
+  if ((mode & BRUSH_AUTOMASKING_VIEW_OCCLUSION) && (mode & BRUSH_AUTOMASKING_VIEW_NORMAL)) {
     automasking->occlusion = Array<Cache::OcclusionValue>(verts_num,
                                                           Cache::OcclusionValue::Unknown);
   }
 
-  if (flag_is_set(mode, BRUSH_AUTOMASKING_CAVITY_ALL)) {
+  if (mode & BRUSH_AUTOMASKING_CAVITY_ALL) {
     if (mode_enabled(paint, brush, BRUSH_AUTOMASKING_CAVITY_USE_CURVE)) {
       if (brush) {
         BKE_curvemapping_init(brush->mesh_automasking_settings->cavity_curve);
@@ -1752,7 +1739,7 @@ std::unique_ptr<Cache> cache_init(const Depsgraph &depsgraph,
 
   /* Topology builds up the mask from zero which other modes can subtract from.
    * If it isn't enabled, initialize to 1. */
-  const float initial_value = !flag_is_set(mode, BRUSH_AUTOMASKING_TOPOLOGY) ? 1.0f : 0.0f;
+  const float initial_value = !(mode & BRUSH_AUTOMASKING_TOPOLOGY) ? 1.0f : 0.0f;
   automasking->factor = Array<float>(verts_num, initial_value);
   MutableSpan<float> factors = automasking->factor;
 
@@ -1780,11 +1767,10 @@ std::unique_ptr<Cache> cache_init(const Depsgraph &depsgraph,
   }
 
   /* Subtractive modes. */
-  eAutomasking_flag normal_bits = calc_effective_bits(paint, brush);
+  int normal_bits = calc_effective_bits(paint, brush) &
+                    (BRUSH_AUTOMASKING_VIEW_NORMAL | BRUSH_AUTOMASKING_VIEW_OCCLUSION);
 
-  if (flag_is_set(normal_bits, BRUSH_AUTOMASKING_VIEW_NORMAL) ||
-      flag_is_set(normal_bits, BRUSH_AUTOMASKING_VIEW_OCCLUSION))
-  {
+  if (normal_bits) {
     normal_occlusion_automasking_fill(
         depsgraph, *automasking, ob, eAutomasking_flag(normal_bits), factors);
   }
@@ -1822,7 +1808,7 @@ void Cache::calc_cavity_factor(const Depsgraph &depsgraph,
                                const Object &object,
                                const IndexMask &node_mask)
 {
-  if (!flag_is_set(this->settings.flags, BRUSH_AUTOMASKING_CAVITY_ALL)) {
+  if ((this->settings.flags & BRUSH_AUTOMASKING_CAVITY_ALL) == 0) {
     return;
   }
 

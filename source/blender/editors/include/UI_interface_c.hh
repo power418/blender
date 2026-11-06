@@ -77,7 +77,6 @@ struct wmOperator;
 struct wmOperatorType;
 struct wmRegionListenerParams;
 struct wmWindow;
-struct TextboxState;
 namespace ed::asset {
 struct AssetFilterSettings;
 }
@@ -407,8 +406,6 @@ enum ButtonFlag : int64_t {
    * buttons currently.
    */
   BUT_FORCE_SEMI_MODAL_ACTIVE = int64_t(1) << 33,
-  /** On a full Tab auto-complete match, apply the value & keep editing (cursor at the end). */
-  BUT_TEXTEDIT_AUTOCOMPLETE_KEEP_ACTIVE = int64_t(1) << 34,
 };
 
 /** #Button.dragflag */
@@ -775,8 +772,7 @@ Vector<StringRef> text_clip_multiline_middle(const uiFontStyle *fstyle,
  * - #block_func_set and button_func_set are callbacks run when a button is used,
  *   in case events, operators or RNA are not sufficient to handle the button.
  *
- * - #button_funcN_set takes ownership of the argument, freeing and copying it based on its type
- *   unless explicit callbacks are given. */
+ * - #button_funcN_set will free the argument with MEM_delete_void. */
 
 struct SearchItems;
 
@@ -791,25 +787,6 @@ using ButtonCompleteFunc = int (*)(bContext *C, char *str, void *arg);
  */
 using ButtonArgNFree = void (*)(void *argN);
 using ButtonArgNCopy = void *(*)(const void *argN);
-
-/**
- * Template generating a freeing callback matching the #ButtonArgNFree signature.
- */
-template<typename T> void but_func_argN_free(void *argN)
-{
-  MEM_delete(static_cast<T *>(argN));
-}
-
-/**
- * Template generating a copying callback matching the #ButtonArgNCopy signature. Raw arrays are
- * not supported; use a container like #Array or #std::string instead.
- */
-template<typename T> void *but_func_argN_copy(const void *argN)
-{
-  static_assert(!std::is_pointer_v<T> && !std::is_arithmetic_v<T>,
-                "Likely a raw array or C-string, use a container like Array or std::string");
-  return MEM_new<T>(__func__, *static_cast<const T *>(argN));
-}
 
 /**
  * Function to compare the identity of two buttons over redraws, to check if they represent the
@@ -897,10 +874,6 @@ bool but_is_utf8(const Button *but);
 bool block_is_empty_ex(const Block *block, bool skip_title);
 bool block_is_empty(const Block *block);
 bool block_can_add_separator(const Block *block);
-/**
- * Return the first default button (activated by "Return") or null.
- */
-const Button *block_active_default_button_find(const Block *block);
 /**
  * Return true when the block has a default button.
  * Use this for popups to detect when pressing "Return" will run an action.
@@ -1287,6 +1260,11 @@ const ColorManagedDisplay *button_cm_display_get(Button &but);
 void button_placeholder_set(Button *but, StringRef placeholder_text);
 
 /**
+ * Unselect any text selection in the button's text field.
+ */
+void button_clear_selection(Button *but);
+
+/**
  * Special button case, only draw it when used actively, for outliner etc.
  *
  * Needed for temporarily rename buttons, such as in outliner or file-select,
@@ -1409,21 +1387,6 @@ Button *uiDefButR_prop(Block *block,
                        float min,
                        float max,
                        std::optional<StringRef> tip);
-/**
- * Height of the text-box with the given state.
- */
-int textbox_but_height(const TextboxState &state);
-
-/**
- * Create a multi-line text-box for editing an RNA property.
- */
-Button *uiDefButTextBoxR(Block *block,
-                         PointerRNA *ptr,
-                         StringRefNull propname,
-                         TextboxState *state,
-                         int x,
-                         int y,
-                         short width);
 Button *uiDefButO(Block *block,
                   ButtonType type,
                   StringRefNull opname,
@@ -1771,32 +1734,8 @@ Button *uiDefBlockButN(Block *block,
                        short width,
                        short height,
                        std::optional<StringRef> tip,
-                       ButtonArgNFree func_argN_free_fn,
-                       ButtonArgNCopy func_argN_copy_fn);
-/** Variant that frees and copies \a argN based on its type, see #but_func_argN_free. */
-template<typename T>
-Button *uiDefBlockButN(Block *block,
-                       BlockCreateFunc func,
-                       T *argN,
-                       StringRef str,
-                       int x,
-                       int y,
-                       short width,
-                       short height,
-                       std::optional<StringRef> tip)
-{
-  return uiDefBlockButN(block,
-                        func,
-                        argN,
-                        str,
-                        x,
-                        y,
-                        width,
-                        height,
-                        tip,
-                        but_func_argN_free<T>,
-                        but_func_argN_copy<T>);
-}
+                       ButtonArgNFree func_argN_free_fn = MEM_delete_void,
+                       ButtonArgNCopy func_argN_copy_fn = MEM_dupalloc_void);
 
 /**
  * Block button containing icon.
@@ -1945,10 +1884,9 @@ bool search_item_add(SearchItems *items,
  * \param search_create_fn: Function to create the menu.
  * \param search_update_fn: Function to refresh search content after the search text has changed.
  * \param arg: user value.
- * \param search_arg_free_fn: When non-null, use this function to free \a arg when the button is
- * destroyed.
- * \param search_arg_copy_fn: Must be set when \a arg is newly allocated memory for every redraw,
- * so a copy of it can be passed to \a search_exec_fn.
+ * \param free_arg: Set to true if the argument is newly allocated memory for every redraw and
+ * should be freed when the button is destroyed.
+ * \param search_arg_free_fn: When non-null, use this function to free \a arg.
  * \param search_exec_fn: Function that executes the action, gets \a arg as the first argument.
  * The second argument as the active item-pointer
  * \param active: When non-null, this item-pointer item will be visible and selected,
@@ -1958,27 +1896,10 @@ void button_func_search_set(Button *but,
                             ButtonSearchCreateFn search_create_fn,
                             ButtonSearchUpdateFn search_update_fn,
                             void *arg,
+                            bool free_arg,
                             FreeArgFunc search_arg_free_fn,
-                            ButtonArgNCopy search_arg_copy_fn,
                             ButtonHandleFunc search_exec_fn,
                             void *active);
-template<typename T>
-void button_func_search_set(Button *but,
-                            ButtonSearchCreateFn search_create_fn,
-                            ButtonSearchUpdateFn search_update_fn,
-                            T *arg,
-                            ButtonHandleFunc search_exec_fn,
-                            void *active)
-{
-  button_func_search_set(but,
-                         search_create_fn,
-                         search_update_fn,
-                         arg,
-                         but_func_argN_free<T>,
-                         but_func_argN_copy<T>,
-                         search_exec_fn,
-                         active);
-}
 void button_func_search_set_context_menu(Button *but, ButtonSearchContextMenuFn context_menu_fn);
 void button_func_search_set_tooltip(Button *but, ButtonSearchTooltipFn tooltip_fn);
 void button_func_search_set_listen(Button *but, ButtonSearchListenFn listen_fn);
@@ -2049,14 +1970,8 @@ void block_funcN_set(Block *block,
                      ButtonHandleNFunc funcN,
                      void *argN,
                      void *arg2,
-                     ButtonArgNFree func_argN_free_fn,
-                     ButtonArgNCopy func_argN_copy_fn);
-/** Variant that frees and copies \a argN based on its type, see #but_func_argN_free. */
-template<typename T>
-void block_funcN_set(Block *block, ButtonHandleNFunc funcN, T *argN, void *arg2)
-{
-  block_funcN_set(block, funcN, argN, arg2, but_func_argN_free<T>, but_func_argN_copy<T>);
-}
+                     ButtonArgNFree func_argN_free_fn = MEM_delete_void,
+                     ButtonArgNCopy func_argN_copy_fn = MEM_dupalloc_void);
 
 void text_button_func_rename_set(
     Button *but, std::function<void(bContext &C, StringRefNull oldname)> rename_func);
@@ -2067,14 +1982,8 @@ void button_funcN_set(Button *but,
                       ButtonHandleNFunc funcN,
                       void *argN,
                       void *arg2,
-                      ButtonArgNFree func_argN_free_fn,
-                      ButtonArgNCopy func_argN_copy_fn);
-/** Variant that frees and copies \a argN based on its type, see #but_func_argN_free. */
-template<typename T>
-void button_funcN_set(Button *but, ButtonHandleNFunc funcN, T *argN, void *arg2)
-{
-  button_funcN_set(but, funcN, argN, arg2, but_func_argN_free<T>, but_func_argN_copy<T>);
-}
+                      ButtonArgNFree func_argN_free_fn = MEM_delete_void,
+                      ButtonArgNCopy func_argN_copy_fn = MEM_dupalloc_void);
 
 void button_func_complete_set(Button *but, ButtonCompleteFunc func, void *arg);
 
@@ -2091,10 +2000,6 @@ void button_func_menu_step_set(Button *but, MenuStepFunc func);
 void button_menu_disable_hover_open(Button *but);
 
 void button_func_tooltip_set(Button *but, ButtonToolTipFunc func, void *arg, FreeArgFunc free_arg);
-template<typename T> void button_func_tooltip_set(Button *but, ButtonToolTipFunc func, T *arg)
-{
-  button_func_tooltip_set(but, func, arg, but_func_argN_free<T>);
-}
 /**
  * Enable a tooltip that appears faster than the usual tooltip. If the button has both a quick and
  * a normal tooltip, the quick one is shown first, and expanded to the full one after the usual
@@ -2145,11 +2050,6 @@ void button_func_tooltip_custom_set(Button *but,
                                     ButtonToolTipCustomFunc func,
                                     void *arg,
                                     FreeArgFunc free_arg);
-template<typename T>
-void button_func_tooltip_custom_set(Button *but, ButtonToolTipCustomFunc func, T *arg)
-{
-  button_func_tooltip_custom_set(but, func, arg, but_func_argN_free<T>);
-}
 
 template<typename Func> void button_func_tooltip_custom_set_cpp(Button &but, Func &&func)
 {
@@ -2160,7 +2060,8 @@ template<typename Func> void button_func_tooltip_custom_set_cpp(Button &but, Fun
         const Func &func = *static_cast<Func *>(argN);
         func(C, data);
       },
-      allocated);
+      allocated,
+      [](void *arg) { MEM_delete<Func>(static_cast<Func *>(arg)); });
 }
 
 /**
@@ -2229,7 +2130,7 @@ bool textbutton_activate_but(const bContext *C, Button *actbut);
  */
 void button_focus_on_enter_event(wmWindow *win, Button *but);
 
-void button_func_hold_set(Button *but, ButtonHandleHoldFunc func, std::string arg);
+void button_func_hold_set(Button *but, ButtonHandleHoldFunc func, void *argN);
 
 PointerRNA *button_extra_operator_icon_add(Button *but,
                                            StringRefNull opname,
@@ -2643,28 +2544,6 @@ void template_search_preview(Layout *layout,
                              int rows,
                              int cols,
                              std::optional<StringRef> text = std::nullopt);
-
-/**
- * Create a filepath with filebrowser button, similar to the default layout generated for this type
- * of string property by `Layout::prop()`, but with more control.
- *
- * \param pathselect_op: If not null, the name of the operator to call (instead of the generic
- * `BUTTONS_OT_file_browse` or `BUTTONS_OT_directory_browse` ones).
- * \param filter_glob: If not empty, a 'glob filter' string listing all allowed extensions to list
- * in the filebrowser, separated by semi-columns (e.g. `*.usd;*.usda;*.usdc;*.usdz`). Only used if
- * the property sub-type is `PROP_FILEPATH`.
- * \param name: Label text, the property name is used if unset.
- * \param placeholder: the placeholder text to show in the text widget, when empty.
- */
-void template_filepath(Layout *layout,
-                       const bContext *C,
-                       PointerRNA *ptr,
-                       const StringRefNull propname,
-                       const char *pathselect_op,
-                       const char *filter_glob,
-                       const std::optional<StringRef> name,
-                       const std::optional<StringRef> placeholder);
-
 /**
  * This is creating/editing RNA-Paths
  *
@@ -2918,17 +2797,7 @@ void template_colormanaged_view_settings(Layout *layout,
                                          PointerRNA *ptr,
                                          StringRefNull propname);
 
-enum class RecentFilesFilter : int8_t {
-  All,
-  Project, /**< Files in the active project. */
-  Other,   /**< Files not in the active project. */
-};
-int template_recent_files(Layout *layout,
-                          int rows,
-                          RecentFilesFilter filter = RecentFilesFilter::All,
-                          float project_ratio = 0.5f);
-int template_recent_projects(Layout *layout, int rows);
-void template_project_splash(Layout *layout, bContext *C);
+int template_recent_files(Layout *layout, int rows);
 void template_file_select_path(Layout *layout, bContext *C, FileSelectParams *params);
 
 void template_asset_shelf_popover(
@@ -3211,9 +3080,6 @@ ARegion *tooltip_create_from_button_or_extra_icon(bContext *C,
                                                   ButtonExtraOpIcon *extra_icon,
                                                   bool is_quick_tip);
 ARegion *tooltip_create_from_gizmo(bContext *C, wmGizmo *gz);
-ARegion *tooltip_create_from_func(bContext *C,
-                                  FunctionRef<void(TooltipData &data)> create_fn,
-                                  const float init_position[2]);
 
 void tooltip_free(bContext *C, bScreen *screen, ARegion *region);
 
@@ -3326,11 +3192,6 @@ Button *region_views_find_active_item_but(const ARegion *region);
 void region_views_clear_search_highlight(const ARegion *region);
 
 bool region_panels_fits_only_categories(const ARegion *region);
-/**
- * Ensures the region is wide enough to draw panels' content.
- * \return true if the region width changed.
- */
-bool panel_region_visible_width_ensure(ARegion *region);
 
 void register_scene_compositor_effects_panel(ARegionType *region_type);
 

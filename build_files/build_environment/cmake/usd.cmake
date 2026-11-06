@@ -154,7 +154,16 @@ ExternalProject_Add(external_usd
       ${PATCH_DIR}/usd_storm_vulkan.diff &&
     ${PATCH_CMD} -p 1 -d
       ${BUILD_DIR}/usd/src/external_usd <
-      ${PATCH_DIR}/usd_vulkan_headless_3931.diff
+      ${PATCH_DIR}/usd_vulkan_headless_3931.diff &&
+    ${PATCH_CMD} -p 1 -d
+      ${BUILD_DIR}/usd/src/external_usd 
+     -i ${PATCH_DIR}/usd_f595276c1ac231bb0bc632697f398a681a963e3f.diff &&
+    ${PATCH_CMD} -p 1 -d
+      ${BUILD_DIR}/usd/src/external_usd  
+     -i ${PATCH_DIR}/usd_a609a89a750f1c70f5bfd61bb418d5a09eaa6585.diff &&
+    ${PATCH_CMD} -p 1 -d
+      ${BUILD_DIR}/usd/src/external_usd  
+     -i ${PATCH_DIR}/usd_5744a98789c934e8810058b0f21d22f344df28b0.diff
 
   CMAKE_ARGS
     -DCMAKE_INSTALL_PREFIX=${LIBDIR}/usd
@@ -205,8 +214,8 @@ if(WIN32)
   if(BUILD_MODE STREQUAL Debug)
     ExternalProject_Add_Step(external_usd after_install
       COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${LIBDIR}/usd/lib/site-packages
-        ${HARVEST_TARGET}/usd/lib/debug/site-packages
+        ${LIBDIR}/usd/lib/python
+        ${HARVEST_TARGET}/usd/lib/debug/python
       COMMAND ${CMAKE_COMMAND} -E copy
         ${LIBDIR}/usd/lib/usd_ms_d.dll
         ${HARVEST_TARGET}/usd/lib/usd_ms_d.dll
@@ -223,7 +232,7 @@ else()
   harvest(external_usd usd/lib/usd usd/lib/usd "*")
   harvest_rpath_python(
     external_usd
-    usd/lib/python${PYTHON_SHORT_VERSION}/site-packages/pxr
+    usd/lib/python/pxr
     python/lib/python${PYTHON_SHORT_VERSION}/site-packages/pxr
     "*"
   )

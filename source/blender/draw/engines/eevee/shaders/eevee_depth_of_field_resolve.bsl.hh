@@ -19,8 +19,8 @@
 namespace eevee::dof::resolve {
 
 struct Resources {
-  [[resource_table]] Accumulator accumulator;
-  [[resource_table]] draw::View views;
+  [[resource_table]] srt_t<Accumulator> accumulator;
+  [[resource_table]] srt_t<draw::View> views;
 
   [[specialization_constant(false)]] const bool do_debug_color;
 
@@ -43,6 +43,8 @@ struct Resources {
    */
   float slight_focus_coc_tile_get(float2 frag_coord, uint local_index)
   {
+    [[resource_table]] const Accumulator &accum = accumulator;
+
     float local_abs_max = 0.0f;
     /* Sample in a cross (X) pattern. This covers all pixels over the whole tile, as long as
      * dof_max_slight_focus_radius is less than the group size. */
@@ -50,8 +52,8 @@ struct Resources {
       float2 sample_uv = (frag_coord + quad_offsets[i] * 2.0f * dof_max_slight_focus_radius) /
                          float2(textureSize(color_tx, 0));
       float depth = reverse_z::read(textureLod(depth_tx, sample_uv, 0.0f).r);
-      float coc = dof_coc_from_depth(views, accumulator.dof_buf, sample_uv, depth);
-      coc = clamp(coc, -accumulator.dof_buf.coc_abs_max, accumulator.dof_buf.coc_abs_max);
+      float coc = dof_coc_from_depth(views, accum.dof_buf, sample_uv, depth);
+      coc = clamp(coc, -accum.dof_buf.coc_abs_max, accum.dof_buf.coc_abs_max);
       if (abs(coc) < dof_max_slight_focus_radius) {
         local_abs_max = max(local_abs_max, abs(coc));
       }
@@ -73,7 +75,8 @@ struct Resources {
   {
     /* Stabilize color by clamping with the stable half res neighborhood. */
     float3 neighbor_min, neighbor_max;
-    const float2 corners[4] = {float2(-1, -1), float2(1, -1), float2(-1, 1), float2(1, 1)};
+    constexpr float2 corners[4] = float2_array(
+        float2(-1, -1), float2(1, -1), float2(-1, 1), float2(1, 1));
     for (int i = 0; i < 4; i++) {
       /**
        * Visit the 4 half-res texels around (and containing) the full-resolution texel.
@@ -184,7 +187,7 @@ void comp_main([[resource_table]] Resources &srt,
 
   if (!no_slight_focus_pass && prediction.do_slight_focus) {
     float center_coc;
-    if (accum.consts.use_lut) [[static_branch]] {
+    if (accum.use_lut) [[static_branch]] {
       accum.dof_slight_focus_gather(float2(global_id.xy) + 0.5f,
                                     srt.depth_tx,
                                     srt.color_tx,
@@ -251,17 +254,19 @@ void comp_main([[resource_table]] Resources &srt,
 
 }  // namespace eevee::dof::resolve
 
+#ifndef GLSL_CPP_STUBS
 PipelineCompute eevee_depth_of_field_resolve_lut(eevee::dof::resolve::comp_main,
-                                                 eevee::dof::AccumulatorConstants{
+                                                 eevee::dof::Accumulator{
                                                      .is_hole_fill = false,
                                                      .is_resolve = true,
                                                      .is_foreground = false,
                                                      .use_lut = true,
                                                  });
 PipelineCompute eevee_depth_of_field_resolve_no_lut(eevee::dof::resolve::comp_main,
-                                                    eevee::dof::AccumulatorConstants{
+                                                    eevee::dof::Accumulator{
                                                         .is_hole_fill = false,
                                                         .is_resolve = true,
                                                         .is_foreground = false,
                                                         .use_lut = false,
                                                     });
+#endif

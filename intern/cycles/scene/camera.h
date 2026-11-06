@@ -33,7 +33,7 @@ class OSLCameraParamQuery {
 /* Camera
  *
  * The camera parameters are quite standard, tested to be both compatible with
- * RenderMan, and Blender after remapping.
+ * Renderman, and Blender after remapping.
  */
 
 class Camera : public Node {
@@ -140,8 +140,6 @@ class Camera : public Node {
   NODE_SOCKET_API_STRUCT_MEMBER(float, border, right)
   NODE_SOCKET_API_STRUCT_MEMBER(float, border, bottom)
   NODE_SOCKET_API_STRUCT_MEMBER(float, border, top)
-  NODE_SOCKET_API(float, border_pre_left)
-  NODE_SOCKET_API(float, border_pre_bottom)
 
   BoundBox2D viewport_camera_border;
   NODE_SOCKET_API_STRUCT_MEMBER(float, viewport_camera_border, left)

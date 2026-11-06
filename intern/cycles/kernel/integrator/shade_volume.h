@@ -737,7 +737,7 @@ ccl_device void volume_shadow_null_scattering(KernelGlobals kg,
   }
 }
 
-/* Equiangular sampling as in:
+/* Equi-angular sampling as in:
  * "Importance Sampling Techniques for Path Tracing in Participating Media" */
 
 /* Below this pdf we ignore samples, as they tend to lead to very long distances.
@@ -2742,8 +2742,8 @@ volume_integrate_event(KernelGlobals kg,
   const uint32_t path_flag = INTEGRATOR_STATE(state, path, flag);
   const float continuation_probability = (path_flag & PATH_RAY_TERMINATE_IN_NEXT_VOLUME) ?
                                              0.0f :
-                                             float(INTEGRATOR_STATE(
-                                                 state, path, continuation_probability));
+                                             INTEGRATOR_STATE(
+                                                 state, path, continuation_probability);
   if (continuation_probability == 0.0f) {
     return VOLUME_PATH_MISSED;
   }

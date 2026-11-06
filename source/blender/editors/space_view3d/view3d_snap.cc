@@ -94,8 +94,9 @@ static wmOperatorStatus snap_sel_to_grid_exec(bContext *C, wmOperator *op)
         *bmain, scene, view_layer, CTX_wm_view3d(C));
     for (Object *obedit : objects) {
       if (obedit->type == OB_MESH) {
-        const BMesh *bm = BKE_editmesh_bmesh_get(obedit);
-        if (bm->totvertsel == 0) {
+        BMEditMesh *em = BKE_editmesh_from_object(obedit);
+
+        if (em->bm->totvertsel == 0) {
           continue;
         }
       }
@@ -361,8 +362,9 @@ static bool snap_selected_to_location_rotation(bContext *C,
       obedit = objects[ob_index];
 
       if (obedit->type == OB_MESH) {
-        const BMesh *bm = BKE_editmesh_bmesh_get(obedit);
-        if (bm->totvertsel == 0) {
+        BMEditMesh *em = BKE_editmesh_from_object(obedit);
+
+        if (em->bm->totvertsel == 0) {
           continue;
         }
       }
@@ -929,8 +931,9 @@ static bool snap_curs_to_sel_ex(bContext *C, const int pivot_point, float r_curs
 
       /* We can do that quick check for meshes only... */
       if (obedit->type == OB_MESH) {
-        const BMesh *bm = BKE_editmesh_bmesh_get(obedit);
-        if (bm->totvertsel == 0) {
+        BMEditMesh *em = BKE_editmesh_from_object(obedit);
+
+        if (em->bm->totvertsel == 0) {
           continue;
         }
       }

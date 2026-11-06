@@ -1167,7 +1167,8 @@ class GlareOperation : public NodeOperation {
     gpu::Shader *shader = context().get_shader("compositor_glare_streaks_filter");
     GPU_shader_bind(shader);
 
-    /* Initialize the first input buffer with the highlights. */
+    /* Copy the highlights result into a new result because the output will be copied to the input
+     * after each iteration. */
     const int2 size = highlights.domain().data_size;
     Result input_streak_result = context().create_result(ResultType::Color);
     input_streak_result.allocate_texture(size);
@@ -1177,14 +1178,10 @@ class GlareOperation : public NodeOperation {
     Result output_streak_result = context().create_result(ResultType::Color);
     output_streak_result.allocate_texture(size);
 
-    /* Alternate the input and output buffers so each iteration reads the result of the previous
-     * iteration without copying it. */
+    /* For the given number of iterations, apply the streak filter in the given direction. The
+     * result of the previous iteration is used as the input of the current iteration. */
     const IndexRange iterations_range = IndexRange(get_number_of_iterations());
     for (const int iteration : iterations_range) {
-      const bool even_iteration = (iteration % 2 == 0);
-      Result &read_result = even_iteration ? input_streak_result : output_streak_result;
-      Result &write_result = even_iteration ? output_streak_result : input_streak_result;
-
       const float color_modulator = compute_streak_color_modulator(iteration);
       const float iteration_magnitude = compute_streak_iteration_magnitude(iteration);
       const float3 fade_factors = compute_streak_fade_factors(iteration_magnitude);
@@ -1194,34 +1191,36 @@ class GlareOperation : public NodeOperation {
       GPU_shader_uniform_3fv(shader, "fade_factors", fade_factors);
       GPU_shader_uniform_2fv(shader, "streak_vector", streak_vector);
 
-      GPU_texture_filter_mode(read_result, true);
-      GPU_texture_extend_mode(read_result, GPU_SAMPLER_EXTEND_MODE_CLAMP_TO_BORDER);
-      read_result.bind_as_texture(shader, "input_streak_tx");
+      GPU_texture_filter_mode(input_streak_result, true);
+      GPU_texture_extend_mode(input_streak_result, GPU_SAMPLER_EXTEND_MODE_CLAMP_TO_BORDER);
+      input_streak_result.bind_as_texture(shader, "input_streak_tx");
 
-      write_result.bind_as_image(shader, "output_streak_img");
+      output_streak_result.bind_as_image(shader, "output_streak_img");
 
       compute_dispatch_threads_at_least(shader, size);
 
-      read_result.unbind_as_texture();
-      write_result.unbind_as_image();
+      input_streak_result.unbind_as_texture();
+      output_streak_result.unbind_as_image();
+
+      /* The accumulated result serves as the input for the next iteration, so copy the result to
+       * the input result since it can't be used for reading and writing simultaneously. Skip
+       * copying for the last iteration since it is not needed. */
+      if (iteration != iterations_range.last()) {
+        GPU_memory_barrier(GPU_BARRIER_TEXTURE_UPDATE);
+        GPU_texture_copy(input_streak_result, output_streak_result);
+      }
     }
 
+    input_streak_result.release();
     GPU_shader_unbind();
 
-    /* The last iteration writes to the second buffer for odd iteration counts and to the first
-     * buffer for even iteration counts. Release the other buffer and return the final result. */
-    if (iterations_range.size() % 2 == 1) {
-      input_streak_result.release();
-      return output_streak_result;
-    }
-
-    output_streak_result.release();
-    return input_streak_result;
+    return output_streak_result;
   }
 
   Result apply_streak_filter_cpu(const Result &highlights, const float2 &streak_direction)
   {
-    /* Initialize the first input buffer with the highlights. */
+    /* Copy the highlights result into a new result because the output will be copied to the input
+     * after each iteration. */
     const int2 size = highlights.domain().data_size;
     Result input = this->context().create_result(ResultType::Color);
     input.allocate_texture(size);
@@ -1232,14 +1231,10 @@ class GlareOperation : public NodeOperation {
     Result output = this->context().create_result(ResultType::Color);
     output.allocate_texture(size);
 
-    /* Alternate the input and output buffers so each iteration reads the result of the previous
-     * iteration without copying it. */
+    /* For the given number of iterations, apply the streak filter in the given direction. The
+     * result of the previous iteration is used as the input of the current iteration. */
     const IndexRange iterations_range = IndexRange(this->get_number_of_iterations());
     for (const int iteration : iterations_range) {
-      const bool even_iteration = (iteration % 2 == 0);
-      Result &read_result = even_iteration ? input : output;
-      Result &write_result = even_iteration ? output : input;
-
       const float color_modulator = this->compute_streak_color_modulator(iteration);
       const float iteration_magnitude = this->compute_streak_iteration_magnitude(iteration);
       const float3 fade_factors = this->compute_streak_fade_factors(iteration_magnitude);
@@ -1255,11 +1250,9 @@ class GlareOperation : public NodeOperation {
         /* Load three equally spaced neighbors to the current pixel in the direction of the streak
          * vector. */
         float4 neighbors[3];
-        neighbors[0] = float4(read_result.sample_bilinear_zero<Color>(coordinates + vector));
-        neighbors[1] = float4(
-            read_result.sample_bilinear_zero<Color>(coordinates + vector * 2.0f));
-        neighbors[2] = float4(
-            read_result.sample_bilinear_zero<Color>(coordinates + vector * 3.0f));
+        neighbors[0] = float4(input.sample_bilinear_zero<Color>(coordinates + vector));
+        neighbors[1] = float4(input.sample_bilinear_zero<Color>(coordinates + vector * 2.0f));
+        neighbors[2] = float4(input.sample_bilinear_zero<Color>(coordinates + vector * 3.0f));
 
         /* Attenuate the value of two of the channels for each of the neighbors by multiplying by
          * the color modulator. The particular channels for each neighbor were chosen to be
@@ -1278,21 +1271,23 @@ class GlareOperation : public NodeOperation {
         /* The output is the average between the center color and the weighted sum of the
          * neighbors. Which intuitively mean that highlights will spread in the direction of the
          * streak, which is the desired result. */
-        float4 center_color = float4(read_result.sample_bilinear_zero<Color>(coordinates));
+        float4 center_color = float4(input.sample_bilinear_zero<Color>(coordinates));
         float4 output_color = (center_color + weighted_neighbors_sum) / 2.0f;
-        write_result.store_pixel(texel, Color(output_color));
+        output.store_pixel(texel, Color(output_color));
       });
+
+      /* The accumulated result serves as the input for the next iteration, so copy the result to
+       * the input result since it can't be used for reading and writing simultaneously. Skip
+       * copying for the last iteration since it is not needed. */
+      if (iteration != iterations_range.last()) {
+        parallel_for(size, [&](const int2 texel) {
+          input.store_pixel(texel, output.load_pixel<Color>(texel));
+        });
+      }
     }
 
-    /* The last iteration writes to the second buffer for odd iteration counts and to the first
-     * buffer for even iteration counts. Release the other buffer and return the final result. */
-    if (iterations_range.size() % 2 == 1) {
-      input.release();
-      return output;
-    }
-
-    output.release();
-    return input;
+    input.release();
+    return output;
   }
 
   void accumulate_streak(const Result &streak_result, Result &accumulated_streaks_result)
@@ -2795,7 +2790,7 @@ class GlareOperation : public NodeOperation {
     const int2 quality_factor = int2(this->get_quality_factor());
     domain.data_size = math::divide_ceil(domain.data_size, quality_factor);
     domain.display_size = math::divide_ceil(domain.display_size, quality_factor);
-    domain.data_offset = domain.data_offset / quality_factor;
+    domain.data_offset = math::divide_ceil(domain.data_offset, quality_factor);
     return domain;
   }
 

@@ -43,4 +43,4 @@ private:
 
 }
 
-#endif /* FIXEDOBJECT_HPP_ */
+#endif /* FIXEDOBJECT_H_ */

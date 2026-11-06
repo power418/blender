@@ -113,11 +113,7 @@ static void library_foreach_id(ID *id, LibraryForeachIDData *data)
 {
   Library *lib = id_cast<Library *>(id);
   const LibraryForeachIDFlag foreach_flag = BKE_lib_query_foreachid_process_flags_get(data);
-  BKE_LIB_FOREACHID_PROCESS_IDSUPER(
-      data,
-      lib->runtime->parent,
-      /* The Library::runtime->parent pointer is strictly runtime informative data currently. */
-      (IDWALK_CB_NEVER_SELF | IDWALK_CB_READFILE_IGNORE | IDWALK_CB_WRITEFILE_IGNORE));
+  BKE_LIB_FOREACHID_PROCESS_IDSUPER(data, lib->runtime->parent, IDWALK_CB_NEVER_SELF);
 
   if (lib->flag & LIBRARY_FLAG_IS_ARCHIVE) {
     /* Archive library must have a parent, this can't be nullptr. */
@@ -209,7 +205,8 @@ static void library_blend_read_data(BlendDataReader *reader, ID *id)
 static void library_blend_read_after_liblink(BlendLibReader * /*reader*/, ID *id)
 {
   Library *lib = reinterpret_cast<Library *>(id);
-  if ((lib->flag & LIBRARY_FLAG_IS_ARCHIVE) && lib->archive_parent_library) {
+  if (lib->flag & LIBRARY_FLAG_IS_ARCHIVE) {
+    BLI_assert(lib->archive_parent_library);
     lib->archive_parent_library->runtime->archived_libraries.append(lib);
   }
 }
@@ -234,7 +231,6 @@ IDTypeInfo IDType_ID_LI = {
     .foreach_cache = nullptr,
     .foreach_path = library_foreach_path,
     .foreach_working_space_color = nullptr,
-    .foreach_asset_weak_reference = nullptr,
     .owner_pointer_get = nullptr,
 
     .blend_write = library_blend_write_data,
@@ -703,16 +699,15 @@ static void pack_linked_ids(Main &bmain, const Set<ID *> &ids_to_pack)
   const id_hash::IDHashResult hash_result = id_hash::compute_linked_id_deep_hashes(
       bmain, final_ids_to_pack.as_span());
   if (const auto *errors = std::get_if<id_hash::DeepHashErrors>(&hash_result)) {
-    for (StringRefNull err_msg : errors->missing_files) {
-      CLOG_ERROR(
-          &LOG, "Trying to pack IDs that depend on missing linked library: %s", err_msg.c_str());
+    if (!errors->missing_files.is_empty()) {
+      CLOG_ERROR(&LOG,
+                 "Trying to pack IDs that depend on missing linked libraries: %s",
+                 errors->missing_files[0].c_str());
     }
-    for (StringRefNull err_msg : errors->missing_from_files) {
-      CLOG_ERROR(
-          &LOG, "Trying to pack IDs that are missing from linked library: %s", err_msg.c_str());
-    }
-    for (StringRefNull err_msg : errors->updated_files) {
-      CLOG_ERROR(&LOG, "Trying to pack IDs that have been modified on disk: %s", err_msg.c_str());
+    if (!errors->updated_files.is_empty()) {
+      CLOG_ERROR(&LOG,
+                 "Trying to pack linked ID that has been modified on disk: %s",
+                 errors->updated_files[0].c_str());
     }
     return;
   }
@@ -738,7 +733,7 @@ static void pack_linked_ids(Main &bmain, const Set<ID *> &ids_to_pack)
   BKE_main_ensure_invariants(bmain);
 }
 
-Set<ID *> bke::library::pack_linked_id_hierarchy(Main &bmain, ID &root_id)
+void bke::library::pack_linked_id_hierarchy(Main &bmain, ID &root_id)
 {
   BLI_assert(ID_IS_LINKED(&root_id));
   BLI_assert(!ID_IS_PACKED(&root_id));
@@ -789,7 +784,6 @@ Set<ID *> bke::library::pack_linked_id_hierarchy(Main &bmain, ID &root_id)
       IDWALK_READONLY | IDWALK_RECURSE);
 
   pack_linked_ids(bmain, ids_to_pack);
-  return ids_to_pack;
 }
 
 static Library *add_external_archive_library(Main &bmain, Library &reference_library)
@@ -823,6 +817,7 @@ static Library *add_external_archive_library(Main &bmain, Library &reference_lib
 Library *bke::library::create_external_archive_library(Main &bmain, Library &external_library)
 {
   BLI_assert(external_library.flag & LIBRARY_FLAG_IS_EXTERNAL);
+  BLI_assert(external_library.runtime->archived_libraries.is_empty());
 
   Library *archive_library = add_external_archive_library(bmain, external_library);
 

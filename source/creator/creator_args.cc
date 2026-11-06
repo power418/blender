@@ -1000,14 +1000,13 @@ static const char arg_handle_python_set_doc_disable[] =
 
 static int arg_handle_python_set(int /*argc*/, const char ** /*argv*/, void *data)
 {
-  const bool use_autoexec = bool(data);
-  if (use_autoexec) {
+  if (bool(data)) {
     G.f |= G_FLAG_SCRIPT_AUTOEXEC;
   }
   else {
     G.f &= ~G_FLAG_SCRIPT_AUTOEXEC;
   }
-  G.autoexec_override = use_autoexec;
+  G.f |= G_FLAG_SCRIPT_OVERRIDE_PREF;
   return 0;
 }
 
@@ -1134,8 +1133,7 @@ static int arg_handle_command_set(int argc, const char **argv, void *data)
 {
   if (!main_arg_deferred_is_set()) {
     if (argc < 2) {
-      fprintf(
-          stderr, "%s requires at least one argument, see 'help' for all commands.\n", argv[0]);
+      fprintf(stderr, "%s requires at least one argument\n", argv[0]);
       exit(EXIT_FAILURE);
       BLI_assert_unreachable();
     }
@@ -2957,8 +2955,6 @@ static bool handle_load_file(bContext *C, const char *filepath_arg, const bool l
   STRNCPY(filepath, filepath_arg);
   BLI_path_canonicalize_native(filepath, sizeof(filepath));
 
-  const bool is_directory = BLI_is_dir(filepath);
-
   /* Load the file. */
   ReportList reports;
   BKE_reports_init(&reports, RPT_PRINT | RPT_STORE);
@@ -2967,9 +2963,7 @@ static bool handle_load_file(bContext *C, const char *filepath_arg, const bool l
    * Instead, enabling auto-execution via `--enable-autoexec` causes the auto-execution
    * check to be skipped (if it's set), so it's fine to always enable the check here. */
   const bool use_scripts_autoexec_check = true;
-  const bool success = !is_directory ?
-                           WM_file_read(C, filepath, use_scripts_autoexec_check, &reports) :
-                           WM_file_read_project(C, filepath, &reports);
+  const bool success = WM_file_read(C, filepath, use_scripts_autoexec_check, &reports);
 
   wmWindowManager *wm = CTX_wm_manager(C);
   WM_reports_from_reports_move(wm, &reports);
@@ -2980,59 +2974,55 @@ static bool handle_load_file(bContext *C, const char *filepath_arg, const bool l
       /* Ensure we use 'C->data.scene' for background render. */
       CTX_wm_window_set(C, nullptr);
     }
-    return true;
   }
+  else {
+    /* Failed to load file, stop processing arguments if running in background mode. */
+    if (G.background) {
+      /* Set `is_break` if running in the background mode so
+       * blender will return non-zero exit code which then
+       * could be used in automated script to control how
+       * good or bad things are. */
+      G.is_break = true;
+      return false;
+    }
 
-  /* Failed to load file, stop processing arguments if running in background mode. */
-  if (G.background) {
-    /* Set `is_break` if running in the background mode so
-     * blender will return non-zero exit code which then
-     * could be used in automated script to control how
-     * good or bad things are. */
-    G.is_break = true;
-    return false;
+    const char *error_msg_generic = "file could not be loaded";
+    const char *error_msg = nullptr;
+
+    if (load_empty_file == false) {
+      error_msg = error_msg_generic;
+    }
+    else if (!BKE_blendfile_extension_check(filepath)) {
+      /* Non-blend. Continue loading and give warning. */
+      G_MAIN->is_read_invalid = true;
+      return true;
+    }
+    else if (BLI_exists(filepath)) {
+      /* When a file is found but can't be loaded, handling it as a new file
+       * could cause it to be unintentionally overwritten (data loss).
+       * Further this is almost certainly not that a user would expect or want.
+       * If they do, they can delete the file beforehand. */
+      error_msg = error_msg_generic;
+    }
+
+    if (error_msg) {
+      fprintf(stderr, "Error: %s, exiting! %s\n", error_msg, filepath);
+      WM_exit(C, EXIT_FAILURE);
+      /* Unreachable, return for clarity. */
+      return false;
+    }
+
+    /* Behave as if a file was loaded, calling "Save" will write to the `filepath` from the CLI.
+     *
+     * WARNING: The path referenced may be incorrect, no attempt is made to validate the path
+     * here or check that writing to it will work. If the users enters the path of a directory
+     * that doesn't exist (for example) saving will fail.
+     * Attempting to create the file at this point is possible but likely to cause more
+     * trouble than it's worth (what with network drives), removable devices ... etc. */
+
+    STRNCPY(G_MAIN->filepath, filepath);
+    printf("... opened default scene instead; saving will write to: %s\n", filepath);
   }
-
-  if (is_directory) {
-    return false;
-  }
-
-  const char *error_msg_generic = "file could not be loaded";
-  const char *error_msg = nullptr;
-
-  if (load_empty_file == false) {
-    error_msg = error_msg_generic;
-  }
-  else if (!BKE_blendfile_extension_check(filepath)) {
-    /* Non-blend. Continue loading and give warning. */
-    G_MAIN->is_read_invalid = true;
-    return true;
-  }
-  else if (BLI_exists(filepath)) {
-    /* When a file is found but can't be loaded, handling it as a new file
-     * could cause it to be unintentionally overwritten (data loss).
-     * Further this is almost certainly not that a user would expect or want.
-     * If they do, they can delete the file beforehand. */
-    error_msg = error_msg_generic;
-  }
-
-  if (error_msg) {
-    fprintf(stderr, "Error: %s, exiting! %s\n", error_msg, filepath);
-    WM_exit(C, EXIT_FAILURE);
-    /* Unreachable, return for clarity. */
-    return false;
-  }
-
-  /* Behave as if a file was loaded, calling "Save" will write to the `filepath` from the CLI.
-   *
-   * WARNING: The path referenced may be incorrect, no attempt is made to validate the path
-   * here or check that writing to it will work. If the users enters the path of a directory
-   * that doesn't exist (for example) saving will fail.
-   * Attempting to create the file at this point is possible but likely to cause more
-   * trouble than it's worth (what with network drives), removable devices ... etc. */
-
-  STRNCPY(G_MAIN->filepath, filepath);
-  printf("... opened default scene instead; saving will write to: %s\n", filepath);
 
   return true;
 }
@@ -3130,12 +3120,12 @@ void main_args_setup(bContext *C, bArgs *ba, bool all)
                nullptr,
                "--gpu-device-no-fallback",
                CB_EX(arg_handle_debug_mode_generic_set, gpu_device_no_fallback),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_GPU_DEVICE_NO_FALLBACK)));
+               reinterpret_cast<void *>(G_DEBUG_GPU_DEVICE_NO_FALLBACK));
   BLI_args_add(ba,
                nullptr,
                "--debug-gpu-backend-no-fallback",
                CB_EX(arg_handle_debug_mode_generic_set, gpu_backend_no_fallback),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_GPU_BACKEND_NO_FALLBACK)));
+               reinterpret_cast<void *>(G_DEBUG_GPU_BACKEND_NO_FALLBACK));
   BLI_args_add(ba, nullptr, "--gpu-vsync", CB(arg_handle_gpu_vsync_set), nullptr);
   if (defs.with_opengl_backend) {
     BLI_args_add(ba,
@@ -3162,23 +3152,23 @@ void main_args_setup(bContext *C, bArgs *ba, bool all)
                "-y",
                "--enable-autoexec",
                CB_EX(arg_handle_python_set, enable),
-               reinterpret_cast<void *>(intptr_t(true)));
+               reinterpret_cast<void *>(true));
   BLI_args_add(ba,
                "-Y",
                "--disable-autoexec",
                CB_EX(arg_handle_python_set, disable),
-               reinterpret_cast<void *>(intptr_t(false)));
+               reinterpret_cast<void *>(false));
 
   BLI_args_add(ba,
                nullptr,
                "--offline-mode",
                CB_EX(arg_handle_internet_allow_set, offline),
-               reinterpret_cast<void *>(intptr_t(false)));
+               reinterpret_cast<void *>(false));
   BLI_args_add(ba,
                nullptr,
                "--online-mode",
                CB_EX(arg_handle_internet_allow_set, online),
-               reinterpret_cast<void *>(intptr_t(true)));
+               reinterpret_cast<void *>(true));
 
   BLI_args_add(
       ba, nullptr, "--console-crash-handler", CB(arg_handle_crash_handler_console), nullptr);
@@ -3219,50 +3209,50 @@ void main_args_setup(bContext *C, bArgs *ba, bool all)
                  nullptr,
                  "--debug-freestyle",
                  CB_EX(arg_handle_debug_mode_generic_set, freestyle),
-                 reinterpret_cast<void *>(intptr_t(G_DEBUG_FREESTYLE)));
+                 reinterpret_cast<void *>(G_DEBUG_FREESTYLE));
   }
   BLI_args_add(ba,
                nullptr,
                "--debug-python",
                CB_EX(arg_handle_debug_mode_generic_set, python),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_PYTHON)));
+               reinterpret_cast<void *>(G_DEBUG_PYTHON));
   BLI_args_add(ba,
                nullptr,
                "--debug-events",
                CB_EX(arg_handle_debug_mode_generic_set, events),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_EVENTS)));
+               reinterpret_cast<void *>(G_DEBUG_EVENTS));
   BLI_args_add(ba,
                nullptr,
                "--debug-handlers",
                CB_EX(arg_handle_debug_mode_generic_set, handlers),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_HANDLERS)));
+               reinterpret_cast<void *>(G_DEBUG_HANDLERS));
   BLI_args_add(ba,
                nullptr,
                "--debug-wm",
                CB_EX(arg_handle_debug_mode_generic_set, wm),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_WM)));
+               reinterpret_cast<void *>(G_DEBUG_WM));
   if (defs.with_xr_openxr) {
     BLI_args_add(ba,
                  nullptr,
                  "--debug-xr",
                  CB_EX(arg_handle_debug_mode_generic_set, xr),
-                 reinterpret_cast<void *>(intptr_t(G_DEBUG_XR)));
+                 reinterpret_cast<void *>(G_DEBUG_XR));
     BLI_args_add(ba,
                  nullptr,
                  "--debug-xr-time",
                  CB_EX(arg_handle_debug_mode_generic_set, xr_time),
-                 reinterpret_cast<void *>(intptr_t(G_DEBUG_XR_TIME)));
+                 reinterpret_cast<void *>(G_DEBUG_XR_TIME));
   }
   BLI_args_add(ba,
                nullptr,
                "--debug-ghost",
                CB_EX(arg_handle_debug_mode_generic_set, ghost),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_GHOST)));
+               reinterpret_cast<void *>(G_DEBUG_GHOST));
   BLI_args_add(ba,
                nullptr,
                "--debug-wintab",
                CB_EX(arg_handle_debug_mode_generic_set, wintab),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_WINTAB)));
+               reinterpret_cast<void *>(G_DEBUG_WINTAB));
   BLI_args_add(ba, nullptr, "--debug-all", CB(arg_handle_debug_mode_all), nullptr);
 
   BLI_args_add(ba, nullptr, "--debug-io", CB(arg_handle_debug_mode_io), nullptr);
@@ -3282,7 +3272,7 @@ void main_args_setup(bContext *C, bArgs *ba, bool all)
                nullptr,
                "--debug-jobs",
                CB_EX(arg_handle_debug_mode_generic_set, jobs),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_JOBS)));
+               reinterpret_cast<void *>(G_DEBUG_JOBS));
   BLI_args_add(ba, nullptr, "--debug-gpu", CB(arg_handle_debug_gpu_set), nullptr);
   BLI_args_add(ba,
                nullptr,
@@ -3322,54 +3312,54 @@ void main_args_setup(bContext *C, bArgs *ba, bool all)
                nullptr,
                "--debug-depsgraph",
                CB_EX(arg_handle_debug_mode_generic_set, depsgraph),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_DEPSGRAPH)));
+               reinterpret_cast<void *>(G_DEBUG_DEPSGRAPH));
   BLI_args_add(ba,
                nullptr,
                "--debug-depsgraph-build",
                CB_EX(arg_handle_debug_mode_generic_set, depsgraph_build),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_DEPSGRAPH_BUILD)));
+               reinterpret_cast<void *>(G_DEBUG_DEPSGRAPH_BUILD));
   BLI_args_add(ba,
                nullptr,
                "--debug-depsgraph-eval",
                CB_EX(arg_handle_debug_mode_generic_set, depsgraph_eval),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_DEPSGRAPH_EVAL)));
+               reinterpret_cast<void *>(G_DEBUG_DEPSGRAPH_EVAL));
   BLI_args_add(ba,
                nullptr,
                "--debug-depsgraph-tag",
                CB_EX(arg_handle_debug_mode_generic_set, depsgraph_tag),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_DEPSGRAPH_TAG)));
+               reinterpret_cast<void *>(G_DEBUG_DEPSGRAPH_TAG));
   BLI_args_add(ba,
                nullptr,
                "--debug-depsgraph-time",
                CB_EX(arg_handle_debug_mode_generic_set, depsgraph_time),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_DEPSGRAPH_TIME)));
+               reinterpret_cast<void *>(G_DEBUG_DEPSGRAPH_TIME));
   BLI_args_add(ba,
 
                nullptr,
                "--debug-depsgraph-no-threads",
                CB_EX(arg_handle_debug_mode_generic_set, depsgraph_no_threads),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_DEPSGRAPH_NO_THREADS)));
+               reinterpret_cast<void *>(G_DEBUG_DEPSGRAPH_NO_THREADS));
   BLI_args_add(ba,
                nullptr,
                "--debug-depsgraph-pretty",
                CB_EX(arg_handle_debug_mode_generic_set, depsgraph_pretty),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_DEPSGRAPH_PRETTY)));
+               reinterpret_cast<void *>(G_DEBUG_DEPSGRAPH_PRETTY));
   BLI_args_add(ba,
                nullptr,
                "--debug-depsgraph-uid",
                CB_EX(arg_handle_debug_mode_generic_set, depsgraph_uid),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_DEPSGRAPH_UID)));
+               reinterpret_cast<void *>(G_DEBUG_DEPSGRAPH_UID));
   BLI_args_add(ba,
                nullptr,
                "--debug-gpu-force-workarounds",
                CB_EX(arg_handle_debug_mode_generic_set, gpu_force_workarounds),
-               reinterpret_cast<void *>(intptr_t(G_DEBUG_GPU_FORCE_WORKAROUNDS)));
+               reinterpret_cast<void *>(G_DEBUG_GPU_FORCE_WORKAROUNDS));
   if (defs.with_vulkan_backend) {
     BLI_args_add(ba,
                  nullptr,
                  "--debug-gpu-vulkan-local-read",
                  CB_EX(arg_handle_debug_mode_generic_set, gpu_force_vulkan_local_read),
-                 reinterpret_cast<void *>(intptr_t(G_DEBUG_GPU_FORCE_VULKAN_LOCAL_READ)));
+                 reinterpret_cast<void *>(G_DEBUG_GPU_FORCE_VULKAN_LOCAL_READ));
   }
   BLI_args_add(ba, nullptr, "--debug-exit-on-error", CB(arg_handle_debug_exit_on_error), nullptr);
 

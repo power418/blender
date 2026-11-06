@@ -6,7 +6,6 @@
  * \ingroup edinterface
  */
 
-#include "BKE_collection.hh"
 #include "BKE_context.hh"
 #include "BKE_file_handler.hh"
 #include "BKE_idprop.hh"
@@ -115,7 +114,7 @@ static AutoPropButsReturn template_operator_property_buts_draw_single(
     op->type->ui(const_cast<bContext *>(C), op);
     op->layout = nullptr;
 
-    /* #UI_LAYOUT_OP_SHOW_EMPTY ignored. return_info is ignored too.
+    /* #UI_LAYOUT_OP_SHOW_EMPTY ignored. retun_info is ignored too.
      * We could allow #wmOperatorType.ui callback to return this, but not needed right now. */
   }
   else {
@@ -343,9 +342,7 @@ static void draw_import_controls(bContext *C, Layout &layout, const std::string 
 {
   layout.label(label, ICON_NONE);
   if (valid) {
-    Layout &col = layout.column(false);
-
-    Layout &row = col.row(false);
+    Layout &row = layout.row(false);
     row.emboss_set(EmbossType::None);
     row.popover(C, "WM_PT_operator_presets", "", ICON_PRESET);
   }
@@ -353,7 +350,6 @@ static void draw_import_controls(bContext *C, Layout &layout, const std::string 
 
 static void draw_import_properties(bContext *C,
                                    Layout &layout,
-                                   const bke::FileHandlerType *fh,
                                    PointerRNA &importer_ptr,
                                    wmOperator *op)
 {
@@ -362,6 +358,11 @@ static void draw_import_properties(bContext *C,
   col.separator();
   col.use_property_decorate_set(false);
 
+  /* Note this property is used as an alternative to the `filepath` property of `op->ptr`.
+   * This property is a wrapper to access that property, see the `CollectionExport::filepath`
+   * code comments for details. */
+  PropertyRNA *prop = RNA_struct_find_property(&importer_ptr, "filepath");
+
   /* Style filepath field as alert when empty, it's required for importing. */
   char filepath[FILE_MAX];
   RNA_string_get(&importer_ptr, "filepath", filepath);
@@ -369,18 +370,14 @@ static void draw_import_properties(bContext *C,
     col.red_alert_set(true);
   }
 
-  /* NOTE: This property is used as an alternative to the `filepath` property of `op->ptr`.
-   * This property is a wrapper to access that property, see the `CollectionExport::filepath`
-   * code comments for details. */
-  const std::optional<std::string> filter_glob = fh->filter_glob_from_extensions();
-  template_filepath(&col,
-                    C,
-                    &importer_ptr,
-                    "filepath",
-                    nullptr,
-                    filter_glob ? filter_glob->c_str() : nullptr,
-                    "",
-                    IFACE_("Select a file..."));
+  col.prop(&importer_ptr,
+           prop,
+           RNA_NO_INDEX,
+           0,
+           UI_ITEM_NONE,
+           "",
+           ICON_NONE,
+           IFACE_("Select a file..."));
 
   template_operator_property_buts_draw_single(
       C, op, layout, BUT_LABEL_ALIGN_NONE, TEMPLATE_OP_PROPS_HIDE_PRESETS);
@@ -388,6 +385,10 @@ static void draw_import_properties(bContext *C,
 
 void template_collection_importer(Layout *layout, bContext *C)
 {
+  if (!U.experimental.use_collection_importer) {
+    return;
+  }
+
   Collection *collection = CTX_data_collection(C);
   CollectionImport *data = collection->importer;
 
@@ -397,15 +398,9 @@ void template_collection_importer(Layout *layout, bContext *C)
     return;
   }
 
-  /* If the collection has already been imported, change to the Reload operator. */
-  const char *op_name = "COLLECTION_OT_importer_import";
-  if (data->runtime->archive_library) {
-    op_name = "COLLECTION_OT_importer_reload";
-  }
-
   Layout &row = layout->row(true);
-  row.op(op_name, IFACE_("Import to Collection"), ICON_IMPORT);
-  row.menu("COLLECTION_MT_importer_control", "", ICON_DOWNARROW_HLT);
+  row.op("COLLECTION_OT_importer_import", IFACE_("Import"), ICON_IMPORT);
+  row.op("COLLECTION_OT_importer_remove", "", ICON_X);
 
   layout->separator();
 
@@ -438,7 +433,7 @@ void template_collection_importer(Layout *layout, bContext *C)
   std::string label(fh->label);
   draw_import_controls(C, *panel.header, label, true);
   if (panel.body) {
-    draw_import_properties(C, *panel.body, fh, importer_ptr, op);
+    draw_import_properties(C, *panel.body, importer_ptr, op);
   }
 }
 

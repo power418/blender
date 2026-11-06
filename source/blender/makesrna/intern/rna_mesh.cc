@@ -1870,20 +1870,17 @@ static std::optional<std::string> rna_MeshColor_path(const PointerRNA *ptr)
 static int rna_Mesh_tot_vert_get(PointerRNA *ptr)
 {
   Mesh *mesh = rna_mesh(ptr);
-  const BMesh *bm = BKE_editmesh_bmesh_get(mesh);
-  return bm ? bm->totvertsel : 0;
+  return mesh->runtime->edit_mesh ? mesh->runtime->edit_mesh->bm->totvertsel : 0;
 }
 static int rna_Mesh_tot_edge_get(PointerRNA *ptr)
 {
   Mesh *mesh = rna_mesh(ptr);
-  const BMesh *bm = BKE_editmesh_bmesh_get(mesh);
-  return bm ? bm->totedgesel : 0;
+  return mesh->runtime->edit_mesh ? mesh->runtime->edit_mesh->bm->totedgesel : 0;
 }
 static int rna_Mesh_tot_face_get(PointerRNA *ptr)
 {
   Mesh *mesh = rna_mesh(ptr);
-  const BMesh *bm = BKE_editmesh_bmesh_get(mesh);
-  return bm ? bm->totfacesel : 0;
+  return mesh->runtime->edit_mesh ? mesh->runtime->edit_mesh->bm->totfacesel : 0;
 }
 
 static PointerRNA rna_Mesh_vertex_color_new(Mesh *mesh,
@@ -3062,7 +3059,7 @@ static void rna_def_mesh(BlenderRNA *brna)
   RNA_def_property_ui_text(
       prop,
       "Corner Normals",
-      "The \"split\" normal direction of each face corner, influenced by vertex normals, "
+      "The \"slit\" normal direction of each face corner, influenced by vertex normals, "
       "sharp faces, sharp edges, and custom normals. May be empty.");
   RNA_def_property_collection_funcs(prop,
                                     "rna_Mesh_corner_normals_begin",
@@ -3293,13 +3290,6 @@ static void rna_def_mesh(BlenderRNA *brna)
                            "Mirror Vertex Groups",
                            "Mirror the left/right vertex groups when painting. The symmetry axis "
                            "is determined by the symmetry settings.");
-  RNA_def_property_update(prop, 0, "rna_Mesh_update_draw");
-
-  prop = RNA_def_property(srna, "use_radial_symmetry", PROP_BOOLEAN, PROP_NONE);
-  RNA_def_property_boolean_sdna(prop, nullptr, "symmetry", ME_SYMMETRY_RADIAL);
-  RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
-  RNA_def_property_ui_text(
-      prop, "Radial Symmetry", "Mirror brush strokes radially around a central axis.");
   RNA_def_property_update(prop, 0, "rna_Mesh_update_draw");
 
   prop = RNA_def_property(srna, "radial_symmetry", PROP_INT, PROP_XYZ);

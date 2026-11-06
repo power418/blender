@@ -13,7 +13,6 @@
 #include "GPU_attribute_convert.hh"
 
 #include "BKE_attribute.hh"
-#include "BKE_editmesh.hh"
 #include "BKE_editmesh_tangent.hh"
 #include "BKE_mesh.hh"
 #include "BKE_mesh_tangent.hh"
@@ -48,9 +47,8 @@ static Array<Array<float4>> extract_tan_init_common(const MeshRenderData &mr,
     Array<float4> tangents;
     if (mr.extract_type == MeshExtractType::BMesh) {
       Array<float3> positions = BM_mesh_vert_coords_alloc(mr.bm);
-      BKE_mesh_orco_verts_transform(const_cast<Mesh *>(mr.mesh), positions, false);
       tangents = BKE_editmesh_orco_tangents_calc(
-          mr.bm, mr.edit_bmesh->looptris, mr.bm_face_normals, mr.bm_loop_normals, positions);
+          mr.edit_bmesh, mr.bm_face_normals, mr.bm_loop_normals, positions);
     }
     else {
       Span<float3> orco;
@@ -117,7 +115,7 @@ static Array<Array<float4>> extract_tan_init_common(const MeshRenderData &mr,
   Array<Array<float4>> results;
   if (mr.extract_type == MeshExtractType::BMesh) {
     results = BKE_editmesh_uv_tangents_calc(
-        mr.bm, mr.edit_bmesh->looptris, mr.bm_face_normals, mr.bm_loop_normals, uv_names);
+        mr.edit_bmesh, mr.bm_face_normals, mr.bm_loop_normals, uv_names);
   }
   else {
     Array<VArraySpan<float2>> uv_maps(uv_names.size());
@@ -165,9 +163,8 @@ gpu::VertBufPtr extract_tangents(const MeshRenderData &mr,
     for (const int i : tangents.index_range()) {
       const Span<float4> layer_data = tangents[i];
       for (int corner = 0; corner < mr.corners_num; corner++) {
-        short4 value = gpu::convert_normal<short4>(float3(layer_data[corner]));
-        value.w = (layer_data[corner][3] > 0.0f) ? SHRT_MAX : SHRT_MIN;
-        tan_data[vbo_index] = value;
+        tan_data[vbo_index] = gpu::convert_normal<short4>(float3(layer_data[corner]));
+        tan_data[vbo_index].w = (layer_data[corner][3] > 0.0f) ? SHRT_MAX : SHRT_MIN;
         vbo_index++;
       }
     }
@@ -179,9 +176,8 @@ gpu::VertBufPtr extract_tangents(const MeshRenderData &mr,
     for (const int i : tangents.index_range()) {
       const Span<float4> layer_data = tangents[i];
       for (int corner = 0; corner < mr.corners_num; corner++) {
-        int1010102_norm value = gpu::convert_normal<int1010102_norm>(float3(layer_data[corner]));
-        value.w = (layer_data[corner][3] > 0.0f) ? 1 : -2;
-        tan_data[vbo_index] = value;
+        tan_data[vbo_index] = gpu::convert_normal<int1010102_norm>(float3(layer_data[corner]));
+        tan_data[vbo_index].w = (layer_data[corner][3] > 0.0f) ? 1 : -2;
         vbo_index++;
       }
     }

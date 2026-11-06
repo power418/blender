@@ -27,11 +27,10 @@ static int node_shader_gpu_layer_weight(GPUMaterial *mat,
                                         GPUNodeStack *out)
 {
   if (!in[1].link) {
-    GPU_link(mat, "world_normals_get", GPU_shading_data(), &in[1].link);
+    GPU_link(mat, "world_normals_get", &in[1].link);
   }
 
-  return GPU_stack_link(
-      mat, node, "node_layer_weight", in, out, GPU_kernel_globals(), GPU_shading_data());
+  return GPU_stack_link(mat, node, "node_layer_weight", in, out);
 }
 
 NODE_SHADER_MATERIALX_BEGIN

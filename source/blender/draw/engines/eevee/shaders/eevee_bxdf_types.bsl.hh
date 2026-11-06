@@ -16,9 +16,7 @@ struct BsdfSample {
 };
 
 struct BsdfEval {
-  /* BSDF * NL. */
   float throughput;
-  /* Probability of sampling a light direction. */
   float pdf;
   /* `throughput / pdf`. */
   float weight;

@@ -614,7 +614,7 @@ Curve::const_point_iterator Curve::points_end(float step) const
   // _Length);
 }
 
-// Advanced Iterators access
+// Adavnced Iterators access
 Curve::point_iterator Curve::vertices_begin()
 {
   return points_begin(0);

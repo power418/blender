@@ -75,7 +75,6 @@ set_property(GLOBAL PROPERTY ICON_GEOM_NAMES
   ops.generic.select_circle
   ops.generic.select_lasso
   ops.generic.select_paint
-  ops.gpencil.carver
   ops.gpencil.draw
   ops.gpencil.draw.eraser
   ops.gpencil.draw.line
@@ -224,8 +223,6 @@ if(WITH_BLENDER)
       axis_side
       axis_top
       back
-      backdrop_pan
-      backdrop_zoom
       blank1
       blender
       blender_logo_large
@@ -347,7 +344,6 @@ if(WITH_BLENDER)
       error
       experimental
       export
-      extension
       external_drive
       external_drive_large
       eyedropper
@@ -420,7 +416,6 @@ if(WITH_BLENDER)
       gizmo
       gp_caps_flat
       gp_caps_round
-      gp_cyclic_stroke
       gp_draw_stroke
       gp_draw_fill
       gp_draw_both
@@ -832,9 +827,6 @@ if(WITH_BLENDER)
       seq_chroma_scope
       seq_histogram
       seq_luma_waveform
-      seq_overlap_overwrite
-      seq_overlap_ripple
-      seq_overlap_shuffle
       seq_preview
       seq_sequencer
       seq_splitview

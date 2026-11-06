@@ -11,7 +11,7 @@
 #include "ANIM_armature_iter.hh"
 
 /* Define macros in `DNA_genfile.h`. */
-#define DNA_GENFILE_VERSIONING_MACROS_LEGACY
+#define DNA_GENFILE_VERSIONING_MACROS
 
 #include "DNA_anim_types.h"
 #include "DNA_brush_types.h"
@@ -24,7 +24,7 @@
 #include "DNA_screen_types.h"
 #include "DNA_sequence_types.h"
 
-#undef DNA_GENFILE_VERSIONING_MACROS_LEGACY
+#undef DNA_GENFILE_VERSIONING_MACROS
 
 #include "BLI_listbase.hh"
 #include "BLI_math_vector_c.hh"
@@ -729,8 +729,8 @@ static void change_output_socket_to_rotation_type(bNodeTree &ntree,
       /* No need to add the conversion node when implicit conversions will work. */
       continue;
     }
-    if (STREQ(link.tonode->idname,
-              "FunctionNodeRotationToEuler")) { /* Make versioning idempotent. */
+    if (STREQ(link.tonode->idname, "FunctionNodeRotationToEuler"))
+    { /* Make versioning idempotent. */
       continue;
     }
     bNode *convert = bke::node_add_node(nullptr, ntree, "FunctionNodeRotationToEuler"_ustr);

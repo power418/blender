@@ -131,15 +131,12 @@ static const char *shortcut_get_operator_property(bContext *C, Button *but, IDPr
       return "WM_OT_context_toggle";
     }
     if (rnaprop_type == PROP_ENUM) {
-      /* `is_enum_menu` is true for expanded enum properties. It's to add shortcut to individual
-       * enum item, see: !163600 */
-      const bool is_enum_menu = but->type == ButtonType::Menu;
-      *r_prop = is_enum_menu ? shortcut_property_from_rna(C, but) :
-                               shortcut_property_from_rna_for_enum(C, but, but);
+      /* Enum */
+      *r_prop = shortcut_property_from_rna(C, but);
       if (*r_prop == nullptr) {
         return nullptr;
       }
-      return is_enum_menu ? "WM_OT_context_menu_enum" : "WM_OT_context_set_enum";
+      return "WM_OT_context_menu_enum";
     }
   }
 
@@ -1053,6 +1050,10 @@ bool popup_context_menu_for_button(bContext *C, Button *but, const wmEvent *even
     if (asset && asset->is_online_only()) {
       layout.op("ASSET_OT_assets_download", {}, ICON_DOWNLOAD);
     }
+    if (asset && asset->get_metadata().webpage) {
+      PointerRNA op_ptr = layout.op("WM_OT_url_open", "Visit Webpage", ICON_URL);
+      RNA_string_set(&op_ptr, "url", asset->get_metadata().webpage);
+    }
   }
 
   {
@@ -1305,18 +1306,12 @@ bool popup_context_menu_for_button(bContext *C, Button *but, const wmEvent *even
 
   /* perhaps we should move this into (G.debug & G_DEBUG) - campbell */
   if (U.flag & USER_DEVELOPER_UI) {
-    if (!block_is_menu(but->block) || (but->block->handle && but->block->handle->can_refresh)) {
-      Layout &sub = layout.column(true);
-      if (but->block->handle) {
-        PointerRNA region_ptr = RNA_pointer_create_discrete(
-            id_cast<ID *>(CTX_wm_screen(C)), RNA_Region, but->block->handle->region);
-        sub.context_ptr_set("popup_region", &region_ptr);
-      }
-      sub.op("UI_OT_editsource",
-             std::nullopt,
-             ICON_NONE,
-             wm::OpCallContext::InvokeDefault,
-             UI_ITEM_NONE);
+    if (block_is_menu(but->block) == false) {
+      layout.op("UI_OT_editsource",
+                std::nullopt,
+                ICON_NONE,
+                wm::OpCallContext::InvokeDefault,
+                UI_ITEM_NONE);
     }
   }
 

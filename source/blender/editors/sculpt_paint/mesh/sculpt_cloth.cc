@@ -509,6 +509,7 @@ void ensure_nodes_constraints(const Sculpt &sd,
 
   IndexMaskMemory memory;
   Set<OrderedEdge> created_length_constraints;
+  Vector<int> vert_indices;
   Vector<int> neighbor_offsets;
   Vector<int> neighbor_data;
   switch (pbvh.type()) {
@@ -542,7 +543,6 @@ void ensure_nodes_constraints(const Sculpt &sd,
         init_positions = persistent_position;
       }
       uninitialized_nodes.foreach_index([&](const int i) {
-        Vector<int, bke::pbvh::MESH_LEAF_LIMIT> vert_indices;
         const Span<int> verts = hide::node_visible_verts(nodes[i], hide_vert, vert_indices);
         const GroupedSpan<int> neighbors = calc_vert_neighbors(faces,
                                                                corner_verts,
@@ -588,7 +588,6 @@ void ensure_nodes_constraints(const Sculpt &sd,
       else {
         init_positions = persistent_position;
       }
-      Vector<int> vert_indices;
       uninitialized_nodes.foreach_index([&](const int i) {
         const Span<int> verts = calc_visible_vert_indices_grids(
             key, grid_hidden, nodes[i].grids(), vert_indices);
@@ -616,7 +615,6 @@ void ensure_nodes_constraints(const Sculpt &sd,
           });
       BMesh &bm = *ss.bm;
       vert_random_access_ensure(object);
-      Vector<int> vert_indices;
       uninitialized_nodes.foreach_index([&](const int i) {
         const Set<BMVert *, 0> &bm_verts = BKE_pbvh_bmesh_node_unique_verts(&nodes[i]);
         const Span<int> verts = calc_visible_vert_indices_bmesh(bm_verts, vert_indices);
@@ -778,29 +776,30 @@ static void calc_forces_mesh(const Depsgraph &depsgraph,
                              const MeshAttributeData &attribute_data,
                              const Span<float3> positions_eval,
                              const Span<float3> vert_normals,
-                             const bke::pbvh::MeshNode &node)
+                             const bke::pbvh::MeshNode &node,
+                             LocalData &tls)
 {
   SculptSession &ss = *ob.runtime->sculpt_session;
   SimulationData &cloth_sim = *ss.cache->cloth_sim;
   const StrokeCache &cache = *ss.cache;
 
   const Span<int> verts = node.verts();
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> positions(verts.size());
-  gather_data_mesh(positions_eval, verts, positions.as_mutable_span());
-
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> init_positions(verts.size());
-  gather_data_mesh(cloth_sim.init_pos.as_span(), verts, init_positions.as_mutable_span());
+  const MutableSpan positions = gather_data_mesh(positions_eval, verts, tls.positions);
+  const MutableSpan init_positions = gather_data_mesh(
+      cloth_sim.init_pos.as_span(), verts, tls.init_positions);
   const Span<float3> current_positions = brush.cloth_deform_type == BRUSH_CLOTH_DEFORM_GRAB ?
                                              init_positions :
                                              positions;
 
-  Array<float, bke::pbvh::MESH_LEAF_LIMIT> factors(verts.size());
+  tls.factors.resize(verts.size());
+  const MutableSpan<float> factors = tls.factors;
   fill_factor_from_hide_and_mask(attribute_data.hide_vert, attribute_data.mask, verts, factors);
   filter_region_clip_factors(ss, current_positions, factors);
 
   calc_brush_simulation_falloff(brush, cache.radius, sim_location, positions, factors);
 
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> forces(verts.size());
+  tls.translations.resize(verts.size());
+  const MutableSpan<float3> forces = tls.translations;
 
   /* Apply gravity in the entire simulation area before brush distances are taken into account. */
   if (!math::is_zero(gravity)) {
@@ -812,7 +811,8 @@ static void calc_forces_mesh(const Depsgraph &depsgraph,
     calc_front_face(cache.view_normal_symm, vert_normals, verts, factors);
   }
 
-  Array<float, bke::pbvh::MESH_LEAF_LIMIT> distances(verts.size());
+  tls.distances.resize(verts.size());
+  const MutableSpan<float> distances = tls.distances;
   if (falloff_plane) {
     calc_distances_to_plane(current_positions, falloff_plane->plane, distances);
   }
@@ -827,7 +827,7 @@ static void calc_forces_mesh(const Depsgraph &depsgraph,
   const auto_mask::Cache *automask = auto_mask::active_cache_get(ss);
   auto_mask::calc_vert_factors(depsgraph, ob, automask, node, verts, factors);
 
-  calc_brush_texture_factors(PaintMode::Sculpt, ss, brush, current_positions, factors);
+  calc_brush_texture_factors(ss, brush, current_positions, factors);
 
   scale_factors(factors, cache.bstrength);
 
@@ -865,7 +865,7 @@ static void calc_forces_mesh(const Depsgraph &depsgraph,
       break;
     }
     case BRUSH_CLOTH_DEFORM_INFLATE:
-      gather_data_mesh(vert_normals, verts, forces.as_mutable_span());
+      gather_data_mesh(vert_normals, verts, forces);
       scale_translations(forces, factors);
       apply_forces(cloth_sim, forces, verts);
       break;
@@ -938,7 +938,7 @@ static void calc_forces_grids(const Depsgraph &depsgraph,
   const auto_mask::Cache *automask = auto_mask::active_cache_get(ss);
   auto_mask::calc_grids_factors(depsgraph, ob, automask, node, grids, factors);
 
-  calc_brush_texture_factors(PaintMode::Sculpt, ss, brush, current_positions, factors);
+  calc_brush_texture_factors(ss, brush, current_positions, factors);
 
   scale_factors(factors, cache.bstrength);
 
@@ -1047,7 +1047,7 @@ static void calc_forces_bmesh(const Depsgraph &depsgraph,
   const auto_mask::Cache *automask = auto_mask::active_cache_get(ss);
   auto_mask::calc_vert_factors(depsgraph, ob, automask, node, bm_verts, factors);
 
-  calc_brush_texture_factors(PaintMode::Sculpt, ss, brush, current_positions, factors);
+  calc_brush_texture_factors(ss, brush, current_positions, factors);
 
   scale_factors(factors, cache.bstrength);
 
@@ -1644,6 +1644,7 @@ static void cloth_brush_apply_brush_forces(const Depsgraph &depsgraph,
       MutableSpan<bke::pbvh::MeshNode> nodes = pbvh.nodes<bke::pbvh::MeshNode>();
       node_mask.foreach_index(
           [&](const int i) {
+            LocalData &tls = all_tls.local();
             calc_forces_mesh(depsgraph,
                              ob,
                              brush,
@@ -1655,7 +1656,8 @@ static void cloth_brush_apply_brush_forces(const Depsgraph &depsgraph,
                              attribute_data,
                              positions_eval,
                              vert_normals,
-                             nodes[i]);
+                             nodes[i],
+                             tls);
           },
           exec_mode::grain_size(1));
       break;

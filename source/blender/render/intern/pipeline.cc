@@ -1363,6 +1363,10 @@ static void do_render_compositor(Render *re)
 
         compositor::SideEffectOutputTypes needed_side_effects_outputs =
             compositor::SideEffectOutputTypes::FileOutputNode;
+        if (!G.background) {
+          needed_side_effects_outputs |= compositor::SideEffectOutputTypes::ViewerNode |
+                                         compositor::SideEffectOutputTypes::NodePreviews;
+        }
 
         CLOG_STR_INFO(&LOG, "Executing compositor");
 
@@ -1427,7 +1431,6 @@ static void renderresult_stampinfo(Render *re)
                           ob_camera_eval,
                           (re->scene->r.stamp & R_STAMP_STRIPMETA) ? rres.stamp_data : nullptr,
                           rres.ibuf);
-      IMB_partial_update_mark_full(rres.ibuf);
     }
 
     RE_ReleaseResultImage(re);

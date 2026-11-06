@@ -1154,7 +1154,7 @@ void ViewMapBuilder::CullViewEdges(ViewMap *ioViewMap,
       if (!bestOccluderTargetFound) {
         // If center point is inside occluder proscenium,
         if (insideProscenium(occluderProscenium, fe->center2d())) {
-          // Use this feature edge for visibility determination
+          // Use this feature edge for visibility deterimination
           fe->setIsInImage(true);
           // Mark bestOccluderTarget as found
           bestOccluderTargetFound = true;

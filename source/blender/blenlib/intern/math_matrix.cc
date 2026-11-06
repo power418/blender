@@ -561,27 +561,15 @@ void transform_normals(const float3x3 &transform, MutableSpan<float3> normals)
   if (is_similarity_transform(normal_transform)) {
     const float3x3 normalized_transform = math::normalize(normal_transform);
     threading::parallel_for(normals.index_range(), 1024, [&](const IndexRange range) {
-      /* Make local copies of the values for better code-gen in the hot loop below. */
-      const float3 x_axis = normalized_transform.x_axis();
-      const float3 y_axis = normalized_transform.y_axis();
-      const float3 z_axis = normalized_transform.z_axis();
-      float3 *data = normals.data();
-      for (const int64_t i : range) {
-        const float3 n = data[i];
-        data[i] = n.x * x_axis + n.y * y_axis + n.z * z_axis;
+      for (float3 &normal : normals.slice(range)) {
+        normal = normalized_transform * normal;
       }
     });
   }
   else {
     threading::parallel_for(normals.index_range(), 1024, [&](const IndexRange range) {
-      /* Make local copies of the values for better code-gen in the hot loop below. */
-      const float3 x_axis = normal_transform.x_axis();
-      const float3 y_axis = normal_transform.y_axis();
-      const float3 z_axis = normal_transform.z_axis();
-      float3 *data = normals.data();
-      for (const int64_t i : range) {
-        const float3 n = data[i];
-        data[i] = math::normalize(n.x * x_axis + n.y * y_axis + n.z * z_axis);
+      for (float3 &normal : normals.slice(range)) {
+        normal = math::normalize(normal_transform * normal);
       }
     });
   }
@@ -598,29 +586,15 @@ void transform_normals(Span<float3> src, const float3x3 &transform, MutableSpan<
   if (is_similarity_transform(normal_transform)) {
     const float3x3 normalized_transform = math::normalize(normal_transform);
     threading::parallel_for(src.index_range(), 1024, [&](const IndexRange range) {
-      /* Make local copies of the values for better code-gen in the hot loop below. */
-      const float3 x_axis = normalized_transform.x_axis();
-      const float3 y_axis = normalized_transform.y_axis();
-      const float3 z_axis = normalized_transform.z_axis();
-      const float3 *src_data = src.data();
-      float3 *dst_data = dst.data();
-      for (const int64_t i : range) {
-        const float3 n = src_data[i];
-        dst_data[i] = n.x * x_axis + n.y * y_axis + n.z * z_axis;
+      for (const int i : range) {
+        dst[i] = normalized_transform * src[i];
       }
     });
   }
   else {
     threading::parallel_for(src.index_range(), 1024, [&](const IndexRange range) {
-      /* Make local copies of the values for better code-gen in the hot loop below. */
-      const float3 x_axis = normal_transform.x_axis();
-      const float3 y_axis = normal_transform.y_axis();
-      const float3 z_axis = normal_transform.z_axis();
-      const float3 *src_data = src.data();
-      float3 *dst_data = dst.data();
-      for (const int64_t i : range) {
-        const float3 n = src_data[i];
-        dst_data[i] = math::normalize(n.x * x_axis + n.y * y_axis + n.z * z_axis);
+      for (const int i : range) {
+        dst[i] = math::normalize(normal_transform * src[i]);
       }
     });
   }
@@ -631,6 +605,16 @@ static bool skip_transform(const float4x4 &transform)
   return math::is_equal(transform, float4x4::identity(), 1e-6f);
 }
 
+static void transform_points_no_threading(const Span<float3> src,
+                                          const float4x4 &transform,
+                                          MutableSpan<float3> dst)
+{
+  PRF_scope(ProfileCategory::Default);
+  for (const int64_t i : src.index_range()) {
+    dst[i] = math::transform_point(transform, src[i]);
+  }
+}
+
 void transform_points(const Span<float3> src,
                       const float4x4 &transform,
                       MutableSpan<float3> dst,
@@ -638,29 +622,24 @@ void transform_points(const Span<float3> src,
 {
   if (skip_transform(transform)) {
     dst.copy_from(src);
-    return;
-  }
-
-  const auto transform_range = [&](const IndexRange range) {
-    PRF_scope(ProfileCategory::Default);
-    /* Make local copies of the values for better code-gen in the hot loop below. */
-    const float3 x_axis = transform.x_axis();
-    const float3 y_axis = transform.y_axis();
-    const float3 z_axis = transform.z_axis();
-    const float3 loc = transform.location();
-    const float3 *src_data = src.data();
-    float3 *dst_data = dst.data();
-    for (const int64_t i : range) {
-      const float3 p = src_data[i];
-      dst_data[i] = p.x * x_axis + p.y * y_axis + p.z * z_axis + loc;
-    }
-  };
-
-  if (use_threading) {
-    threading::parallel_for(src.index_range(), 1024, transform_range);
   }
   else {
-    transform_range(src.index_range());
+    if (use_threading) {
+      threading::parallel_for(src.index_range(), 1024, [&](const IndexRange range) {
+        transform_points_no_threading(src.slice(range), transform, dst.slice(range));
+      });
+    }
+    else {
+      transform_points_no_threading(src, transform, dst);
+    }
+  }
+}
+
+static void transform_points_no_threading(const float4x4 &transform, MutableSpan<float3> points)
+{
+  PRF_scope(ProfileCategory::Default);
+  for (float3 &position : points) {
+    position = math::transform_point(transform, position);
   }
 }
 
@@ -671,26 +650,13 @@ void transform_points(const float4x4 &transform,
   if (skip_transform(transform)) {
     return;
   }
-
-  const auto transform_range = [&](const IndexRange range) {
-    PRF_scope(ProfileCategory::Default);
-    /* Make local copies of the values for better code-gen in the hot loop below. */
-    const float3 x_axis = transform.x_axis();
-    const float3 y_axis = transform.y_axis();
-    const float3 z_axis = transform.z_axis();
-    const float3 loc = transform.location();
-    float3 *data = points.data();
-    for (const int64_t i : range) {
-      const float3 p = data[i];
-      data[i] = p.x * x_axis + p.y * y_axis + p.z * z_axis + loc;
-    }
-  };
-
   if (use_threading) {
-    threading::parallel_for(points.index_range(), 1024, transform_range);
+    threading::parallel_for(points.index_range(), 1024, [&](const IndexRange range) {
+      transform_points_no_threading(transform, points.slice(range));
+    });
   }
   else {
-    transform_range(points.index_range());
+    transform_points_no_threading(transform, points);
   }
 }
 

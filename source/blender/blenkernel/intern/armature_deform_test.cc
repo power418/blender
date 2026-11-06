@@ -341,7 +341,7 @@ class ArmatureDeformTestBase {
                                                 float3(1.5f, 0, 1.5f),
                                                 float3(3.5f, 0, 1.5f)};
 
-    /* Curves data type does not support vertex groups. */
+    /* Curves data type does not support vertext groups. */
     const bool vgroups_supported = ELEM(
         target_type, TargetDataType::Mesh, TargetDataType::EditMesh, TargetDataType::GreasePencil);
     /* Might be a bug: Mesh and GreasePencil allows masking even in envelope mode, but EditMesh
@@ -503,9 +503,8 @@ class ArmatureDeformTestBase {
     BMeshCreateParams create_params{};
     create_params.use_toolflags = true;
     BMesh *bm = BKE_mesh_to_bmesh(mesh, 0, false, &create_params);
-    mesh->runtime->edit_mesh = std::make_shared<BMEditMesh>();
-    mesh->runtime->edit_mesh->bm = bm;
-    Array<float3> bm_verts_wrapper = BM_mesh_vert_coords_alloc(bm);
+    BMEditMesh *edit_mesh = BKE_editmesh_create(bm);
+    Array<float3> bm_verts_wrapper = BM_mesh_vert_coords_alloc(edit_mesh->bm);
 
     Array<float3x3> deform_mats;
     std::optional<MutableSpan<float3x3>> deform_mats_opt;
@@ -523,7 +522,7 @@ class ArmatureDeformTestBase {
                                              deform_mats_opt,
                                              deform_flag,
                                              defgrp_name,
-                                             *bm);
+                                             *edit_mesh);
 
     EXPECT_EQ_SPAN(expected_positions(TargetDataType::EditMesh, weighting, masking),
                    bm_verts_wrapper.as_span());
@@ -531,8 +530,8 @@ class ArmatureDeformTestBase {
       EXPECT_EQ_SPAN(expected_deform_mats(weighting), deform_mats.as_span());
     }
 
-    BKE_editmesh_free_data(mesh->runtime->edit_mesh.get());
-    mesh->runtime->edit_mesh.reset();
+    BKE_editmesh_free_data(edit_mesh);
+    MEM_delete(edit_mesh);
     BKE_id_delete(bmain, ob_arm);
     BKE_id_delete(bmain, ob_target);
   }

@@ -11,7 +11,6 @@
 #include "intern/abc_axis_conversion.h"
 #include "intern/abc_util.h"
 
-#include "BKE_anonymous_attribute_id.hh"
 #include "BKE_attribute.h"
 #include "BKE_attribute.hh"
 #include "BKE_lib_id.hh"
@@ -51,7 +50,6 @@ using Alembic::AbcGeom::OInt32Property;
 using Alembic::AbcGeom::ON3fGeomParam;
 using Alembic::AbcGeom::OPolyMesh;
 using Alembic::AbcGeom::OPolyMeshSchema;
-using Alembic::AbcGeom::OStringProperty;
 using Alembic::AbcGeom::OSubD;
 using Alembic::AbcGeom::OSubDSchema;
 using Alembic::AbcGeom::OV2fGeomParam;
@@ -59,7 +57,7 @@ using Alembic::AbcGeom::UInt32ArraySample;
 
 namespace io::alembic {
 
-/* NOTE: Alembic's polygon winding order is clockwise, to match with RenderMan. */
+/* NOTE: Alembic's polygon winding order is clockwise, to match with Renderman. */
 
 static void get_topology(Mesh *mesh,
                          std::vector<int32_t> &face_verts,
@@ -138,24 +136,9 @@ void ABCGenericMeshWriter::create_alembic_objects(const HierarchyContext *contex
     abc_poly_mesh_ = OPolyMesh(args_.abc_parent, args_.abc_name, timesample_index_);
     abc_poly_mesh_schema_ = abc_poly_mesh_.getSchema();
 
-    abc_custom_data_container_ = abc_poly_mesh_.getSchema().getUserProperties();
-    OBoolProperty type(abc_custom_data_container_, "meshtype");
+    OCompoundProperty typeContainer = abc_poly_mesh_.getSchema().getUserProperties();
+    OBoolProperty type(typeContainer, "meshtype");
     type.set(subsurf_modifier_ == nullptr);
-  }
-
-  if (context->object->data->id_type() == ID_ME) {
-    Mesh *mesh = id_cast<Mesh *>(context->object->data);
-    if (mesh->active_color_attribute && mesh->default_color_attribute) {
-      /* We need to the get the valid versions of the names as the attributes are exported with
-       * validated names. */
-      OStringProperty active_color_attribute(abc_custom_data_container_,
-                                             ABC_ACTIVE_COLOR_ATTRIBUTE_PROPNAME);
-      active_color_attribute.set(get_valid_abc_name(mesh->active_color_attribute));
-
-      OStringProperty default_color_attribute(abc_custom_data_container_,
-                                              ABC_DEFAULT_COLOR_ATTRIBUTE_PROPNAME);
-      default_color_attribute.set(get_valid_abc_name(mesh->default_color_attribute));
-    }
   }
 }
 
@@ -297,7 +280,8 @@ void ABCGenericMeshWriter::write_mesh(HierarchyContext &context, Mesh *mesh)
       mesh_sample.setUVs(uv_sample);
     }
 
-    write_uv_maps(abc_poly_mesh_schema_.getArbGeomParams(), m_custom_data_config, *mesh);
+    write_custom_data(
+        abc_poly_mesh_schema_.getArbGeomParams(), m_custom_data_config, *mesh, CD_PROP_FLOAT2);
   }
 
   if (args_.export_params->normals) {
@@ -325,7 +309,7 @@ void ABCGenericMeshWriter::write_mesh(HierarchyContext &context, Mesh *mesh)
 
   abc_poly_mesh_schema_.set(mesh_sample);
 
-  write_arb_geo_params(mesh, *context.object, abc_poly_mesh_schema_.getNumSamples());
+  write_arb_geo_params(mesh);
 }
 
 void ABCGenericMeshWriter::write_subd(HierarchyContext &context, Mesh *mesh)
@@ -361,7 +345,8 @@ void ABCGenericMeshWriter::write_subd(HierarchyContext &context, Mesh *mesh)
       subdiv_sample.setUVs(uv_sample);
     }
 
-    write_uv_maps(abc_subdiv_schema_.getArbGeomParams(), m_custom_data_config, *mesh);
+    write_custom_data(
+        abc_subdiv_schema_.getArbGeomParams(), m_custom_data_config, *mesh, CD_PROP_FLOAT2);
   }
 
   if (args_.export_params->orcos) {
@@ -430,7 +415,7 @@ void ABCGenericMeshWriter::write_subd(HierarchyContext &context, Mesh *mesh)
   subdiv_sample.setSelfBounds(bounding_box_);
   abc_subdiv_schema_.set(subdiv_sample);
 
-  write_arb_geo_params(mesh, *context.object, abc_subdiv_schema_.getNumSamples());
+  write_arb_geo_params(mesh);
 }
 
 template<typename Schema>
@@ -448,10 +433,12 @@ void ABCGenericMeshWriter::write_face_sets(Object *object, Mesh *mesh, Schema &s
   }
 }
 
-void ABCGenericMeshWriter::write_arb_geo_params(Mesh *mesh,
-                                                const Object &object,
-                                                const size_t num_geom_samples)
+void ABCGenericMeshWriter::write_arb_geo_params(Mesh *mesh)
 {
+  if (!args_.export_params->vcolors) {
+    return;
+  }
+
   OCompoundProperty arb_geom_params;
   if (is_subd_) {
     arb_geom_params = abc_subdiv_.getSchema().getArbGeomParams();
@@ -459,72 +446,7 @@ void ABCGenericMeshWriter::write_arb_geo_params(Mesh *mesh,
   else {
     arb_geom_params = abc_poly_mesh_.getSchema().getArbGeomParams();
   }
-
-  const bke::AttributeAccessor attributes = mesh->attributes();
-
-  if (attribute_maps_) {
-    /* Write empty samples for attributes up until this frame, so everything lines up. */
-    BLI_assert(num_geom_samples >= 1);
-    attribute_maps_->write_empty_samples(num_geom_samples - 1);
-  }
-
-  attributes.foreach_attribute([&](const bke::AttributeIter &iter) {
-    /* Skip "internal" Blender properties and attributes dealt with elsewhere.
-     * Skip edge domain because Alembic doesn't have a good conversion for them. */
-    if (iter.name[0] == '.' || bke::attribute_name_is_anonymous(iter.name) ||
-        iter.domain == bke::AttrDomain::Edge ||
-        ELEM(iter.name,
-             "position",
-             "material_index",
-             "velocity",
-             "crease_vert",
-             "custom_normal",
-             "sharp_face"))
-    {
-      return;
-    }
-
-    if (iter.domain == bke::AttrDomain::Corner) {
-      if (iter.data_type == bke::AttrType::Float2) {
-        /* UVs are written on a different path. */
-        return;
-      }
-
-      if (iter.data_type == bke::AttrType::ColorByte ||
-          iter.data_type == bke::AttrType::ColorFloat)
-      {
-        if (!args_.export_params->vcolors) {
-          return;
-        }
-      }
-    }
-
-    AttributeParamMaps &param_maps = get_attribute_param_maps();
-    /* Pass num_geom_samples - 1 so we write empty samples up until this frame. */
-    BLI_assert(num_geom_samples >= 1);
-    create_geom_param_for_attribute(arb_geom_params,
-                                    param_maps,
-                                    iter,
-                                    timesample_index(),
-                                    mesh->faces(),
-                                    BKE_id_name(object.id),
-                                    num_geom_samples - 1);
-  });
-
-  if (attribute_maps_) {
-    /* If an attribute was missing this frame, write empty samples for it.
-     * This is mostly to ensure that attributes have the same number of samples as the geometry
-     * data if some disappear midway in the animation and never come back. */
-    attribute_maps_->write_empty_samples(num_geom_samples);
-  }
-}
-
-AttributeParamMaps &ABCGenericMeshWriter::get_attribute_param_maps()
-{
-  if (!attribute_maps_) {
-    attribute_maps_ = std::make_unique<AttributeParamMaps>();
-  }
-  return *attribute_maps_.get();
+  write_custom_data(arb_geom_params, m_custom_data_config, *mesh, CD_PROP_BYTE_COLOR);
 }
 
 void ABCGenericMeshWriter::get_geo_groups(Object *object,
@@ -538,7 +460,7 @@ void ABCGenericMeshWriter::get_geo_groups(Object *object,
   for (const int i : material_indices.index_range()) {
     short mnr = material_indices[i];
 
-    Material *mat = BKE_object_material_get_eval(object, mnr + 1);
+    Material *mat = BKE_object_material_get(object, mnr + 1);
 
     if (!mat) {
       continue;
@@ -555,7 +477,7 @@ void ABCGenericMeshWriter::get_geo_groups(Object *object,
   }
 
   if (geo_groups.empty()) {
-    Material *mat = BKE_object_material_get_eval(object, 1);
+    Material *mat = BKE_object_material_get(object, 1);
 
     std::string name = (mat) ? args_.hierarchy_iterator->get_id_name(&mat->id) : "default";
 
@@ -569,7 +491,7 @@ void ABCGenericMeshWriter::get_geo_groups(Object *object,
   }
 }
 
-/* NOTE: Alembic's polygon winding order is clockwise, to match with RenderMan. */
+/* NOTE: Alembic's polygon winding order is clockwise, to match with Renderman. */
 
 static void get_topology(Mesh *mesh,
                          std::vector<int32_t> &face_verts,

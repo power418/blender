@@ -82,4 +82,4 @@ template<typename Derived> inline static int changeBase(Eigen::MatrixBase<Derive
 }
 
 }
-#endif /* EIGEN_TYPES_HPP_ */
+#endif /* UBLAS_TYPES_HPP_ */

@@ -1687,9 +1687,7 @@ static void idp_blend_write_recurse(BlendWriter *writer,
     return;
   }
 
-  writer->write_struct(prop, [](BlendStructWriter<IDProperty> &struct_writer) {
-    struct_writer.shallow_data.data.children_map = nullptr;
-  });
+  writer->write_struct(prop);
   IDP_WriteProperty_OnlyData(prop, writer, recursion_depth);
 }
 

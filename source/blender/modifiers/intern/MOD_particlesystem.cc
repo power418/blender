@@ -153,9 +153,11 @@ static void deform_verts(ModifierData *md,
     Mesh *mesh_original = nullptr;
 
     if (ctx->object->type == OB_MESH) {
-      if (BMesh *bm = BKE_editmesh_bmesh_get_for_write(ctx->object)) {
+      BMEditMesh *em = BKE_editmesh_from_object(ctx->object);
+
+      if (em) {
         /* In edit mode get directly from the edit mesh. */
-        psmd->mesh_original = BKE_mesh_from_bmesh_for_eval_nomain(bm, nullptr, mesh);
+        psmd->mesh_original = BKE_mesh_from_bmesh_for_eval_nomain(em->bm, nullptr, mesh);
       }
       else {
         /* Otherwise get regular mesh. */

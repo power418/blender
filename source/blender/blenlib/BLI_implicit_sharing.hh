@@ -226,15 +226,6 @@ template<typename T> class ImplicitSharedValue : public ImplicitSharingInfo {
   {
     delete this;
   }
-
-  void delete_data_only() override
-  {
-    /* Free the data when there are only weak users left, since they may keep the sharing info
-     * alive much longer. Types that can't be reset are freed together with the sharing info. */
-    if constexpr (requires { this->data = T(); }) {
-      this->data = T();
-    }
-  }
 };
 
 /**
@@ -258,8 +249,6 @@ void *make_trivial_data_mutable_impl(void *old_data,
                                      int64_t size,
                                      int64_t alignment,
                                      const ImplicitSharingInfo **sharing_info);
-
-const ImplicitSharingInfo *info_for_mem_free_impl(void *data);
 
 }  // namespace detail
 
@@ -298,13 +287,7 @@ template<typename T> void free_shared_data(T **data, const ImplicitSharingInfo *
  * Create an implicit sharing object that takes ownership of the data, allowing it to be shared.
  * When it is no longer used, the data is freed with #MEM_delete, so it must be a trivial type.
  */
-template<typename T> const ImplicitSharingInfo *info_for_mem_free(T *data)
-{
-  static_assert(!std::is_void_v<T>);
-  static_assert(std::is_trivially_destructible_v<T>,
-                "Non-trivial types should use e.g. ImplicitSharedValue<Array<T>> instead");
-  return detail::info_for_mem_free_impl(const_cast<void *>(static_cast<const void *>(data)));
-}
+const ImplicitSharingInfo *info_for_mem_free(void *data);
 
 /**
  * Make data mutable (single-user) if it is shared. For trivially-copyable data only.

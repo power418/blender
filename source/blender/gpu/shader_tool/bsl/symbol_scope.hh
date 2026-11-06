@@ -69,7 +69,7 @@ struct SymbolScope : Symbol {
   SymbolMap<SymbolFunction> functions;
   SymbolMap<SymbolClass> classes;
 
-  vector<std::pair<ast::FuncForwardDecl, SymbolFunction *>> function_prototypes;
+  vector<ast::FuncForwardDecl> function_prototypes;
 
   /* Point of instantiation if this is a template instantiation.
    *
@@ -129,7 +129,6 @@ struct SymbolScope : Symbol {
                                      ast::Id last,
                                      optional<SourceLocation> loc = nullopt) const;
 
-  /* Returns nullptr if not found. */
   SymbolVariable *lookup_variable(string id) const;
   SymbolFunction *lookup_function(string id) const;
   SymbolClass *lookup_class(string id) const;
@@ -138,8 +137,7 @@ struct SymbolScope : Symbol {
   SymbolFunction *lookup_function_base(const SymbolTable &table, ast::IdQualified id) const;
   SymbolClass *lookup_class_base(const SymbolTable &table, ast::IdQualified id) const;
 
-  std::pair<ast::FuncForwardDecl, SymbolFunction *> lookup_function_forward_decl(
-      ast::FuncDecl decl) const;
+  ast::FuncForwardDecl lookup_function_forward_decl(ast::FuncDecl decl) const;
 
   void print() const;
 

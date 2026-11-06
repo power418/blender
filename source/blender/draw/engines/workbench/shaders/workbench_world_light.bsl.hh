@@ -6,6 +6,8 @@
 
 #include "gpu_shader_compat.hh"
 
+#include "gpu_shader_utildefines.bsl.hh"
+
 #include "workbench_common.bsl.hh"
 
 namespace workbench {

@@ -10,7 +10,7 @@
  * Unlike regular versioning this makes changes that ensure the startup file
  * has brushes and other presets setup to take advantage of newer features.
  *
- * To update preference defaults see `versioning_userdef.cc`.
+ * To update preference defaults see `userdef_default.c`.
  */
 
 #define DNA_DEPRECATED_ALLOW
@@ -48,7 +48,7 @@
 #include "BKE_colortools.hh"
 #include "BKE_curveprofile.h"
 #include "BKE_customdata.hh"
-#include "BKE_grease_pencil.hh"
+#include "BKE_gpencil_legacy.h"
 #include "BKE_idprop.hh"
 #include "BKE_layer.hh"
 #include "BKE_lib_id.hh"
@@ -173,13 +173,6 @@ static void blo_update_defaults_screen(bScreen *screen,
           }
         }
       }
-
-      /* Reveal the footer by default. */
-      for (ARegion &region : area.regionbase) {
-        if (region.regiontype == RGN_TYPE_FOOTER) {
-          region.flag &= ~RGN_FLAG_HIDDEN;
-        }
-      }
     }
     else if (area.spacetype == SPACE_GRAPH) {
       SpaceGraph *sipo = area.spacedata.first_as<SpaceGraph>();
@@ -201,7 +194,7 @@ static void blo_update_defaults_screen(bScreen *screen,
                                     SEQ_TIMELINE_STRIP_END_THUMBNAILS;
       seq->preview_overlay.flag |= SEQ_PREVIEW_SHOW_OUTLINE_SELECTED;
       seq->cache_overlay.flag = SEQ_CACHE_SHOW | SEQ_CACHE_SHOW_FINAL_OUT;
-      seq->draw_flag |= SEQ_DRAW_EDIT_POINT_PREVIEW;
+      seq->draw_flag |= SEQ_DRAW_TRANSFORM_PREVIEW;
     }
     else if (area.spacetype == SPACE_TEXT) {
       /* Show syntax and line numbers in Script workspace text editor. */
@@ -239,6 +232,7 @@ static void blo_update_defaults_screen(bScreen *screen,
       v3d->overlay.gpencil_vertex_paint_opacity = 1.0f;
       /* Always use theme color for wireframe by default. */
       v3d->shading.wire_color_type = V3D_SHADING_SINGLE_COLOR;
+      v3d->shading.use_compositor = V3D_SHADING_USE_COMPOSITOR_ALWAYS;
 
       /* Level out the 3D Viewport camera rotation, see: #113751. */
       constexpr float viewports_to_level[][4] = {
@@ -389,21 +383,6 @@ void BLO_update_defaults_workspace(WorkSpace *workspace, const char *app_templat
                 sfile->params->filter |= FILE_TYPE_TEXT;
               }
             }
-          }
-        }
-      }
-    }
-  }
-
-  /* For General template. */
-  if (STRPREFIX(workspace->id.name + 2, "Layout")) {
-    for (WorkSpaceLayout &layout : workspace->layouts) {
-      bScreen *screen = layout.screen;
-      if (screen) {
-        for (ScrArea &area : screen->areabase) {
-          if (area.spacetype == SPACE_VIEW3D) {
-            View3D *v3d = area.spacedata.first_as<View3D>();
-            v3d->shading.use_compositor = V3D_SHADING_USE_COMPOSITOR_ALWAYS;
           }
         }
       }
@@ -640,6 +619,7 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
       ma = static_cast<Material *>(
           BLI_findstring(&bmain->materials, "Solid Stroke", offsetof(ID, name) + 2));
       if (ma != nullptr) {
+        ma->gp_style->mix_rgba[3] = 1.0f;
         ma->gp_style->texture_offset[0] = -0.5f;
         ma->gp_style->mix_factor = 0.5f;
       }
@@ -649,6 +629,7 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
           BLI_findstring(&bmain->materials, "Solid Fill", offsetof(ID, name) + 2));
       if (ma != nullptr) {
         ma->gp_style->flag &= ~GP_MATERIAL_STROKE_SHOW;
+        ma->gp_style->mix_rgba[3] = 1.0f;
         ma->gp_style->texture_offset[0] = -0.5f;
         ma->gp_style->mix_factor = 0.5f;
       }
@@ -687,7 +668,7 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
 
       /* Ensure Palette by default. */
       if (ts->gp_paint) {
-        BKE_grease_pencil_palette_ensure(bmain, &scene);
+        BKE_gpencil_palette_ensure(bmain, &scene);
       }
     }
 

@@ -1233,7 +1233,7 @@ static void node_swap_links(bNodeLinkDrag &nldrag, bNodeTree &ntree)
   bNode *start_node = nldrag.start_node;
 
   if (linked_socket.is_input()) {
-    for (bNodeLink &link : ntree.links.items_mutable()) {
+    for (bNodeLink &link : ntree.links) {
       if (link.tosock != &linked_socket) {
         continue;
       }
@@ -1248,7 +1248,7 @@ static void node_swap_links(bNodeLinkDrag &nldrag, bNodeTree &ntree)
     }
   }
   else {
-    for (bNodeLink &link : ntree.links.items_mutable()) {
+    for (bNodeLink &link : ntree.links) {
       if (link.fromsock != &linked_socket) {
         continue;
       }
@@ -2082,7 +2082,7 @@ static wmOperatorStatus detach_links_exec(bContext *C, wmOperator * /*op*/)
   ED_preview_kill_jobs(CTX_wm_manager(C), CTX_data_main(C));
 
   for (bNode *node : ntree.all_nodes()) {
-    if (node->is_selected()) {
+    if (node->flag & SELECT) {
       bke::node_internal_relink(ntree, *node);
     }
   }
@@ -2124,7 +2124,7 @@ static wmOperatorStatus node_parent_set_exec(bContext *C, wmOperator * /*op*/)
     if (node == frame) {
       continue;
     }
-    if (node->is_selected()) {
+    if (node->flag & NODE_SELECT) {
       bke::node_detach_node(ntree, *node);
       bke::node_attach_node(ntree, *node, *frame);
     }
@@ -2341,9 +2341,9 @@ static void join_group_inputs(bNodeTree &tree, VectorSet<bNode *> group_inputs, 
 
     /* Using runtime data directly because we know the parts that are used are still valid. */
     for (const int group_input_i : node->runtime->outputs.index_range().drop_back(1)) {
+      bool keep_socket = false;
       bNodeSocket &new_socket = *main_node->runtime->outputs[group_input_i];
       bNodeSocket &old_socket = *node->runtime->outputs[group_input_i];
-      bool keep_socket = (old_socket.flag & SOCK_HIDDEN) == 0;
       for (bNodeLink *link : old_link_map.lookup(&old_socket)) {
         bNodeSocket &to_socket = *link->tosock;
         if (used_link_targets.lookup(&new_socket).contains(&to_socket)) {
@@ -2354,13 +2354,10 @@ static void join_group_inputs(bNodeTree &tree, VectorSet<bNode *> group_inputs, 
         used_link_targets.add(&new_socket, &to_socket);
         link->fromsock = &new_socket;
         link->fromnode = main_node;
-        keep_socket = true;
+        new_socket.flag &= ~SOCK_HIDDEN;
         BKE_ntree_update_tag_link_changed(&tree);
       }
-      if (keep_socket) {
-        new_socket.flag &= ~SOCK_HIDDEN;
-      }
-      else {
+      if (!keep_socket) {
         old_socket.flag |= SOCK_HIDDEN;
       }
     }
@@ -2382,9 +2379,9 @@ static wmOperatorStatus node_join_nodes_exec(bContext *C, wmOperator *op)
     return OPERATOR_CANCELLED;
   }
 
-  if (std::all_of(selected_nodes.begin(),
-                  selected_nodes.end(),
-                  [](const bNode *node) { return node->is_group_input(); }))
+  if (std::all_of(selected_nodes.begin(), selected_nodes.end(), [](const bNode *node) {
+        return node->is_group_input();
+      }))
   {
     join_group_inputs(ntree, std::move(selected_nodes), active_node);
   }
@@ -2425,7 +2422,7 @@ static bNode *node_find_frame_to_attach(ARegion &region, bNodeTree &ntree, const
 
   for (bNode *frame : tree_draw_order_calc_nodes_reversed(ntree)) {
     /* skip selected, those are the nodes we want to attach */
-    if (!frame->is_frame() || frame->is_selected()) {
+    if (!frame->is_frame() || (frame->flag & NODE_SELECT)) {
       continue;
     }
     if (BLI_rctf_isect_pt_v(&frame->runtime->draw_bounds, cursor)) {
@@ -2470,7 +2467,7 @@ static wmOperatorStatus node_attach_invoke(bContext *C, wmOperator * /*op*/, con
   bool changed = false;
 
   for (bNode *node : tree_draw_order_calc_nodes_reversed(*snode.edittree)) {
-    if (!node->is_selected()) {
+    if (!(node->flag & NODE_SELECT)) {
       continue;
     }
     if (!can_attach_node_to_frame(*node, *frame)) {
@@ -2528,13 +2525,13 @@ static void node_detach_recursive(bNodeTree &ntree,
     if (detach_states[node->parent->index()].descendent) {
       detach_states[node->index()].descendent = true;
     }
-    else if (node->is_selected()) {
+    else if (node->flag & NODE_SELECT) {
       /* If parent is not a descendant of a selected node, detach. */
       bke::node_detach_node(ntree, *node);
       detach_states[node->index()].descendent = true;
     }
   }
-  else if (node->is_selected()) {
+  else if (node->flag & NODE_SELECT) {
     detach_states[node->index()].descendent = true;
   }
 }
@@ -2586,7 +2583,7 @@ static bNode *get_selected_node_for_insertion(bNodeTree &node_tree)
   bNode *selected_node = nullptr;
   int selected_node_count = 0;
   for (bNode *node : node_tree.all_nodes()) {
-    if (node->is_selected()) {
+    if (node->flag & SELECT) {
       selected_node = node;
       selected_node_count++;
     }
@@ -2721,7 +2718,7 @@ void node_insert_on_frame_flag_set(SpaceNode &snode, ARegion &region, const int2
     return;
   }
   for (const bNode *node : snode.edittree->all_nodes()) {
-    if (!node->is_selected()) {
+    if (!(node->flag & NODE_SELECT)) {
       continue;
     }
     if (!can_attach_node_to_frame(*node, *frame)) {

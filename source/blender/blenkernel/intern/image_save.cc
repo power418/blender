@@ -106,8 +106,7 @@ bool BKE_image_save_options_init(ImageSaveOptions *opts,
 
     /* Default to saving in the same colorspace as the image setting. */
     if (!opts->save_as_render) {
-      IMB_colormanagement_colorspace_settings_set(&opts->im_format.linear_colorspace_settings,
-                                                  ima_colorspace);
+      STRNCPY_UTF8(opts->im_format.linear_colorspace_settings.name, ima_colorspace);
     }
 
     opts->im_format.color_management = R_IMF_COLOR_MANAGEMENT_FOLLOW_SCENE;
@@ -200,8 +199,7 @@ void BKE_image_save_options_update(ImageSaveOptions *opts, const Image *image)
              BKE_imtype_requires_linear_float(opts->orig_imtype))
     {
       /* Same type of colorspace needed as original image, so preserve that. */
-      IMB_colormanagement_colorspace_settings_set(&opts->im_format.linear_colorspace_settings,
-                                                  opts->orig_colorspace);
+      STRNCPY(opts->im_format.linear_colorspace_settings.name, opts->orig_colorspace);
     }
     else {
       /* Update for different file format. */
@@ -302,8 +300,7 @@ static void image_save_post(ReportList *reports,
     if (colorspace) {
       StringRefNull colorspace_name = IMB_colormanagement_colorspace_get_name(colorspace);
       if (colorspace_name != ima->colorspace_settings.name) {
-        IMB_colormanagement_colorspace_settings_set(&ima->colorspace_settings,
-                                                    colorspace_name.c_str());
+        STRNCPY(ima->colorspace_settings.name, colorspace_name.c_str());
       }
     }
 

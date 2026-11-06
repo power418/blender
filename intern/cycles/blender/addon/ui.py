@@ -176,11 +176,6 @@ def show_denoise_active(context):
     return True
 
 
-def show_preview_dlss_active(context):
-    cscene = context.scene.cycles
-    return cscene.use_preview_denoising and cscene.preview_denoiser == 'DLSS' and has_dlss_gpu_devices(context)
-
-
 def get_effective_preview_denoiser(context, has_oidn_gpu):
     scene = context.scene
     cscene = scene.cycles
@@ -229,11 +224,12 @@ class CYCLES_RENDER_PT_sampling_viewport(CyclesButtonsPanel, Panel):
         scene = context.scene
         cscene = scene.cycles
 
+        layout.active = not (cscene.use_preview_denoising and cscene.preview_denoiser == 'DLSS')
+
         layout.use_property_split = True
         layout.use_property_decorate = False
 
         heading = layout.column(align=True, heading="Noise Threshold")
-        heading.active = not show_preview_dlss_active(context)
         row = heading.row(align=True)
         row.prop(cscene, "use_preview_adaptive_sampling", text="")
         sub = row.row()
@@ -281,9 +277,10 @@ class CYCLES_RENDER_PT_sampling_viewport_denoise(CyclesButtonsPanel, Panel):
             if has_dlss_gpu_devices(context):
                 col.prop(cscene, "preview_denoising_upscale_quality", text="Upscale Mode")
             else:
-                col.label_multiline(
-                    text=rpt_("Requires NVIDIA GPU with compute capability %s and NVIDIA driver version %s or newer.") %
-                    ("7.5", "590"), icon='STATUS_INFO', translate=False)
+                col.label(text=rpt_("Requires NVIDIA GPU with compute capability %s") % "7.5",
+                          icon='INFO', translate=False)
+                col.label(text=rpt_("and NVIDIA driver version %s or newer") % "580",
+                          icon='BLANK1', translate=False)
             return
 
         col.prop(cscene, "preview_denoising_input_passes", text="Passes")
@@ -481,12 +478,7 @@ class CYCLES_RENDER_PT_sampling_advanced(CyclesButtonsPanel, Panel):
         if cscene.sampling_pattern == 'TABULATED_SOBOL':
             heading = layout.column(align=True, heading="Scrambling Distance")
             heading.prop(cscene, "auto_scrambling_distance", text="Automatic")
-            preview_scrambling_row = heading.row()
-            preview_scrambling_row.prop(cscene, "preview_scrambling_distance", text="Viewport")
-            # Disable preview scrambling if DLSS denoising is used.
-            # Preview scrambling and DLSS are generally incompatible with each other,
-            # so preview scrambling is internally disabled when using DLSS.
-            preview_scrambling_row.active = not show_preview_dlss_active(context)
+            heading.prop(cscene, "preview_scrambling_distance", text="Viewport")
             heading.prop(cscene, "scrambling_distance", text="Multiplier")
 
             layout.separator()
@@ -1097,7 +1089,6 @@ class CYCLES_RENDER_PT_passes_data(CyclesButtonsPanel, Panel):
             col.prop(cycles_view_layer, "denoising_store_passes", text="Data Passes")
             sub = col.column()
             sub.active = cycles_view_layer.denoising_store_passes
-            sub.prop(cycles_view_layer, "denoising_store_motion_passes", text="Motion")
             sub.prop(cycles_view_layer, "denoising_pass_follow_reflections", text="Follow Reflections")
             sub.prop(
                 cycles_view_layer,
@@ -1497,7 +1488,7 @@ class CYCLES_OBJECT_PT_visibility(CyclesButtonsPanel, Panel):
         if has_geometry_visibility(ob):
             col = layout.column(heading="Mask")
             col.prop(ob, "is_shadow_catcher")
-            col.prop(ob, "is_holdout", toggle=False)
+            col.prop(ob, "is_holdout")
 
 
 class CYCLES_OBJECT_PT_visibility_ray_visibility(CyclesButtonsPanel, Panel):
@@ -1519,7 +1510,7 @@ class CYCLES_OBJECT_PT_visibility_ray_visibility(CyclesButtonsPanel, Panel):
         ob = context.object
 
         col = layout.column()
-        col.prop(ob, "visible_camera", text="Camera", toggle=False)
+        col.prop(ob, "visible_camera", text="Camera")
         col.prop(ob, "visible_diffuse", text="Diffuse")
         col.prop(ob, "visible_glossy", text="Glossy")
         col.prop(ob, "visible_transmission", text="Transmission")

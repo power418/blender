@@ -73,6 +73,9 @@ namespace blender {
 
 bool ED_uvedit_test(Object *obedit)
 {
+  BMEditMesh *em;
+  int ret;
+
   if (!obedit) {
     return false;
   }
@@ -81,7 +84,10 @@ bool ED_uvedit_test(Object *obedit)
     return false;
   }
 
-  return EDBM_uv_check(id_cast<const Mesh *>(obedit->data));
+  em = BKE_editmesh_from_object(obedit);
+  ret = EDBM_uv_check(em);
+
+  return ret;
 }
 
 /** \} */
@@ -218,8 +224,8 @@ void ED_uvedit_foreach_uv_multi(const Scene *scene,
                                 FunctionRef<void(float[2])> user_fn)
 {
   for (Object *obedit : objects_edit) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
-    ED_uvedit_foreach_uv(scene, bm, skip_invisible, skip_nonselected, user_fn);
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
+    ED_uvedit_foreach_uv(scene, em->bm, skip_invisible, skip_nonselected, user_fn);
   }
 }
 
@@ -361,16 +367,17 @@ static wmOperatorStatus uv_move_on_axis_exec(bContext *C, wmOperator *op)
     distance_final = distance;
   }
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
     bool changed = false;
-    if (bm->totvertsel == 0) {
+    if (em->bm->totvertsel == 0) {
       continue;
     }
 
-    ED_uvedit_foreach_uv(scene, bm, true, true, [&axis, &distance_final, &changed](float luv[2]) {
-      luv[int(axis)] += distance_final;
-      changed = true;
-    });
+    ED_uvedit_foreach_uv(
+        scene, em->bm, true, true, [&axis, &distance_final, &changed](float luv[2]) {
+          luv[int(axis)] += distance_final;
+          changed = true;
+        });
 
     if (changed) {
       uvedit_live_unwrap_update(sima, scene, obedit);
@@ -684,7 +691,7 @@ static bool uvedit_uv_islands_arrange(const Scene *scene,
                      }
                      const float area_a = (a.bounds.size()[0] * a.bounds.size()[1]);
                      const float area_b = (b.bounds.size()[0] * b.bounds.size()[1]);
-                     return (order == UVAlignIslandOrder::LargeToSmall) ? (area_a > area_b) :
+                     return (order == UVAlignIslandOrder::LargeToSmall) ? (area_a >= area_b) :
                                                                           (area_a < area_b);
                    });
 
@@ -733,7 +740,7 @@ static wmOperatorStatus uv_arrange_islands_exec(bContext *C, wmOperator *op)
   if (initial_position == UVAlignInitialPosition::BoundingBox) {
     INIT_MINMAX2(bounds.min, bounds.max);
     for (Object *obedit : objects) {
-      BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+      BMesh *bm = BKE_editmesh_from_object(obedit)->bm;
       ED_uvedit_foreach_uv(scene, bm, true, true, [&](float luv[2]) {
         minmax_v2v2_v2(bounds.min, bounds.max, luv);
       });
@@ -778,11 +785,12 @@ static wmOperatorStatus uv_arrange_islands_exec(bContext *C, wmOperator *op)
     position[int(axis)] = bounds.min[int(axis)];
   }
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
-    if (bm->totvertsel == 0) {
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
+
+    if (em->bm->totvertsel == 0) {
       continue;
     }
-    if (uvedit_uv_islands_arrange(scene, bm, axis, align, order, margin, position)) {
+    if (uvedit_uv_islands_arrange(scene, em->bm, axis, align, order, margin, position)) {
       uvedit_live_unwrap_update(sima, scene, obedit);
       DEG_id_tag_update(obedit->data, 0);
       WM_event_add_notifier(C, NC_GEOM | ND_DATA, obedit->data);
@@ -906,14 +914,14 @@ static void uv_weld(bContext *C)
   ED_uvedit_center_multi(scene, objects, cent, 0);
 
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
     bool changed = false;
 
-    if (bm->totvertsel == 0) {
+    if (em->bm->totvertsel == 0) {
       continue;
     }
 
-    changed |= uvedit_uv_align_weld(scene, bm, UV_WELD, cent);
+    changed |= uvedit_uv_align_weld(scene, em->bm, UV_WELD, cent);
 
     if (changed) {
       uvedit_live_unwrap_update(sima, scene, obedit);
@@ -960,19 +968,19 @@ static void uv_align(bContext *C, eUVWeldAlign tool, UVAlignPositionMode positio
   }
 
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
     bool changed = false;
 
-    if (bm->totvertsel == 0) {
+    if (em->bm->totvertsel == 0) {
       continue;
     }
 
     if (ELEM(tool, UV_ALIGN_AUTO, UV_ALIGN_X, UV_ALIGN_Y)) {
-      changed |= uvedit_uv_align_weld(scene, bm, tool, pos);
+      changed |= uvedit_uv_align_weld(scene, em->bm, tool, pos);
     }
 
     if (ELEM(tool, UV_STRAIGHTEN, UV_STRAIGHTEN_X, UV_STRAIGHTEN_Y)) {
-      changed |= uvedit_uv_straighten(scene, bm, tool);
+      changed |= uvedit_uv_straighten(scene, em->bm, tool);
     }
 
     if (changed) {
@@ -1089,12 +1097,13 @@ static wmOperatorStatus uv_remove_doubles_to_selected(bContext *C, wmOperator *o
   /* Calculate max possible number of kdtree nodes. */
   int uv_maxlen = 0;
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
-    if (bm->totvertsel == 0) {
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
+
+    if (em->bm->totvertsel == 0) {
       continue;
     }
 
-    uv_maxlen += bm->totloop;
+    uv_maxlen += em->bm->totloop;
   }
 
   KDTree<float2> *tree = kdtree_new<float2>(uv_maxlen);
@@ -1106,8 +1115,8 @@ static wmOperatorStatus uv_remove_doubles_to_selected(bContext *C, wmOperator *o
 
   for (const int ob_index : objects.index_range()) {
     Object *obedit = objects[ob_index];
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
-    ED_uvedit_foreach_uv(scene, bm, true, true, [&](float luv[2]) {
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
+    ED_uvedit_foreach_uv(scene, em->bm, true, true, [&](float luv[2]) {
       kdtree_insert<float2>(tree, uv_map_count, luv);
       duplicates.append(-1);
       uv_map_arr.append(luv);
@@ -1196,8 +1205,8 @@ static wmOperatorStatus uv_remove_doubles_to_unselected(bContext *C, wmOperator 
   /* Calculate max possible number of kdtree nodes. */
   int uv_maxlen = 0;
   for (Object *obedit : objects) {
-    const BMesh *bm = BKE_editmesh_bmesh_get(obedit);
-    uv_maxlen += bm->totloop;
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
+    uv_maxlen += em->bm->totloop;
   }
 
   KDTree<float2> *tree = kdtree_new<float2>(uv_maxlen);
@@ -1218,8 +1227,8 @@ static wmOperatorStatus uv_remove_doubles_to_unselected(bContext *C, wmOperator 
   /* For each selected uv, find duplicate non selected uv. */
   for (Object *obedit : objects) {
     bool changed = false;
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
-    ED_uvedit_foreach_uv(scene, bm, true, true, [&](float luv[2]) {
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
+    ED_uvedit_foreach_uv(scene, em->bm, true, true, [&](float luv[2]) {
       KDTreeNearest<float2> nearest;
       const int i = kdtree_find_nearest<float2>(tree, luv, &nearest);
 
@@ -1257,8 +1266,8 @@ static wmOperatorStatus uv_remove_doubles_to_selected_shared_vertex(bContext *C,
   const float threshold_sq = math::square(RNA_float_get(op->ptr, "threshold"));
 
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
-    const BMUVOffsets offsets = BM_uv_map_offsets_get(bm);
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
+    const BMUVOffsets offsets = BM_uv_map_offsets_get(em->bm);
     BMVert *v;
     BMLoop *l;
     BMIter viter, liter;
@@ -1268,11 +1277,11 @@ static wmOperatorStatus uv_remove_doubles_to_selected_shared_vertex(bContext *C,
     uvs.reserve(32);
     bool changed = false;
 
-    BM_ITER_MESH (v, &viter, bm, BM_VERTS_OF_MESH) {
+    BM_ITER_MESH (v, &viter, em->bm, BM_VERTS_OF_MESH) {
 
       BLI_assert(uvs.size() == 0);
       BM_ITER_ELEM (l, &liter, v, BM_LOOPS_OF_VERT) {
-        if (uvedit_uv_select_test(scene, bm, l, offsets)) {
+        if (uvedit_uv_select_test(scene, em->bm, l, offsets)) {
           uvs.append(BM_ELEM_CD_GET_FLOAT_P(l, offsets.uv));
         }
       }
@@ -1522,10 +1531,10 @@ static void UV_OT_snap_cursor(wmOperatorType *ot)
 
 static bool uv_snap_uvs_to_cursor(Scene *scene, Object *obedit, const float cursor[2])
 {
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMEditMesh *em = BKE_editmesh_from_object(obedit);
   bool changed = false;
 
-  ED_uvedit_foreach_uv(scene, bm, true, true, [&](float luv[2]) {
+  ED_uvedit_foreach_uv(scene, em->bm, true, true, [&](float luv[2]) {
     copy_v2_v2(luv, cursor);
     changed = true;
   });
@@ -1535,10 +1544,10 @@ static bool uv_snap_uvs_to_cursor(Scene *scene, Object *obedit, const float curs
 
 static bool uv_snap_uvs_offset(Scene *scene, Object *obedit, const float offset[2])
 {
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMEditMesh *em = BKE_editmesh_from_object(obedit);
   bool changed = false;
 
-  ED_uvedit_foreach_uv(scene, bm, true, true, [&](float luv[2]) {
+  ED_uvedit_foreach_uv(scene, em->bm, true, true, [&](float luv[2]) {
     add_v2_v2(luv, offset);
     changed = true;
   });
@@ -1548,13 +1557,14 @@ static bool uv_snap_uvs_offset(Scene *scene, Object *obedit, const float offset[
 
 static bool uv_snap_uvs_to_adjacent_unselected(Scene *scene, Object *obedit)
 {
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMEditMesh *em = BKE_editmesh_from_object(obedit);
+  BMesh *bm = em->bm;
   BMFace *f;
   BMLoop *l, *lsub;
   BMIter iter, liter, lsubiter;
   float *luv;
   bool changed = false;
-  const BMUVOffsets offsets = BM_uv_map_offsets_get(bm);
+  const BMUVOffsets offsets = BM_uv_map_offsets_get(em->bm);
 
   /* Index every vert that has a selected UV using it, but only once so as to
    * get unique indices and to count how much to `malloc`. */
@@ -1602,7 +1612,7 @@ static bool uv_snap_uvs_to_adjacent_unselected(Scene *scene, Object *obedit)
 
 static bool uv_snap_uvs_to_pixels(SpaceImage *sima, Scene *scene, Object *obedit)
 {
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+  BMEditMesh *em = BKE_editmesh_from_object(obedit);
   int width = 0, height = 0;
   float w, h;
   bool changed = false;
@@ -1611,7 +1621,7 @@ static bool uv_snap_uvs_to_pixels(SpaceImage *sima, Scene *scene, Object *obedit
   w = float(width);
   h = float(height);
 
-  ED_uvedit_foreach_uv(scene, bm, true, true, [&](float luv[2]) {
+  ED_uvedit_foreach_uv(scene, em->bm, true, true, [&](float luv[2]) {
     uv_snap_to_pixel(luv, w, h);
     changed = true;
   });
@@ -1641,8 +1651,9 @@ static wmOperatorStatus uv_snap_selection_exec(bContext *C, wmOperator *op)
 
   bool changed_multi = false;
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
-    if (bm->totvertsel == 0) {
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
+
+    if (em->bm->totvertsel == 0) {
       continue;
     }
 
@@ -1720,30 +1731,30 @@ static wmOperatorStatus uv_pin_exec(bContext *C, wmOperator *op)
 
   for (Object *obedit : objects) {
     Mesh &mesh = *id_cast<Mesh *>(obedit->data);
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(&mesh);
+    BMEditMesh *em = mesh.runtime->edit_mesh.get();
 
     bool changed = false;
 
     const StringRef active_uv_name = mesh.active_uv_map_name();
-    if (bm->totvertsel == 0) {
+    if (em->bm->totvertsel == 0) {
       continue;
     }
 
-    if (clear && !BM_uv_map_attr_pin_exists(bm, active_uv_name)) {
+    if (clear && !BM_uv_map_attr_pin_exists(em->bm, active_uv_name)) {
       continue;
     }
 
-    BM_uv_map_attr_pin_ensure_named(bm, active_uv_name);
-    const BMUVOffsets offsets = BM_uv_map_offsets_get(bm);
+    BM_uv_map_attr_pin_ensure_named(em->bm, active_uv_name);
+    const BMUVOffsets offsets = BM_uv_map_offsets_get(em->bm);
 
-    BM_ITER_MESH (efa, &iter, bm, BM_FACES_OF_MESH) {
+    BM_ITER_MESH (efa, &iter, em->bm, BM_FACES_OF_MESH) {
       if (!uvedit_face_visible_test(scene, efa)) {
         continue;
       }
 
       BM_ITER_ELEM (l, &liter, efa, BM_LOOPS_OF_FACE) {
 
-        if (uvedit_uv_select_test(scene, bm, l, offsets)) {
+        if (uvedit_uv_select_test(scene, em->bm, l, offsets)) {
           changed = true;
           if (invert) {
             BM_ELEM_CD_SET_BOOL(l, offsets.pin, !BM_ELEM_CD_GET_BOOL(l, offsets.pin));
@@ -1872,12 +1883,12 @@ static bool bm_face_is_all_uv_sel(const ToolSettings *ts,
 static bool uv_mesh_hide_select_sync(const ToolSettings *ts, Object *ob, BMEditMesh *em, bool swap)
 {
   const bool select_to_hide = !swap;
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+  BMesh *bm = em->bm;
   bool changed = false;
 
   if (bm->uv_select_sync_valid == false || ED_uvedit_sync_uvselect_ignore(ts)) {
     /* Simple case, no need to synchronize UV's, forward to mesh hide. */
-    changed = EDBM_mesh_hide(bm, em->selectmode, swap);
+    changed = EDBM_mesh_hide(em, swap);
   }
   else {
     /* For vertices & edges hiding faces immediately causes a feedback loop,
@@ -1891,7 +1902,7 @@ static bool uv_mesh_hide_select_sync(const ToolSettings *ts, Object *ob, BMEditM
 
       if (em->selectmode & SCE_SELECT_VERTEX) {
         BMFace *f;
-        BM_ITER_MESH (f, &iter, bm, BM_FACES_OF_MESH) {
+        BM_ITER_MESH (f, &iter, em->bm, BM_FACES_OF_MESH) {
           if (BM_elem_flag_test(f, BM_ELEM_HIDDEN)) {
             continue;
           }
@@ -1911,7 +1922,7 @@ static bool uv_mesh_hide_select_sync(const ToolSettings *ts, Object *ob, BMEditM
       else {
         BLI_assert(em->selectmode & SCE_SELECT_EDGE);
         BMFace *f;
-        BM_ITER_MESH (f, &iter, bm, BM_FACES_OF_MESH) {
+        BM_ITER_MESH (f, &iter, em->bm, BM_FACES_OF_MESH) {
           if (BM_elem_flag_test(f, BM_ELEM_HIDDEN)) {
             continue;
           }
@@ -1931,7 +1942,7 @@ static bool uv_mesh_hide_select_sync(const ToolSettings *ts, Object *ob, BMEditM
 
       if (changed) {
         BMFace *f;
-        BM_ITER_MESH (f, &iter, bm, BM_FACES_OF_MESH) {
+        BM_ITER_MESH (f, &iter, em->bm, BM_FACES_OF_MESH) {
           if (BM_elem_flag_test(f, BM_ELEM_TAG)) {
             BM_elem_hide_set(bm, f, true);
           }
@@ -1942,7 +1953,7 @@ static bool uv_mesh_hide_select_sync(const ToolSettings *ts, Object *ob, BMEditM
            * TODO(@ideasman42): consider a more elegant solution of ensuring
            * faces at the boundaries don't get their vertices de-selected.
            * This is low-priority as it's no a bottleneck. */
-          BM_ITER_MESH (f, &iter, bm, BM_FACES_OF_MESH) {
+          BM_ITER_MESH (f, &iter, em->bm, BM_FACES_OF_MESH) {
             if (!BM_elem_flag_test(f, BM_ELEM_TAG)) {
               BM_face_select_set(bm, f, true);
             }
@@ -1954,7 +1965,7 @@ static bool uv_mesh_hide_select_sync(const ToolSettings *ts, Object *ob, BMEditM
       BLI_assert(em->selectmode & SCE_SELECT_FACE);
       BMIter iter;
       BMFace *f;
-      BM_ITER_MESH (f, &iter, bm, BM_FACES_OF_MESH) {
+      BM_ITER_MESH (f, &iter, em->bm, BM_FACES_OF_MESH) {
         if (BM_elem_flag_test(f, BM_ELEM_HIDDEN)) {
           continue;
         }
@@ -1967,14 +1978,14 @@ static bool uv_mesh_hide_select_sync(const ToolSettings *ts, Object *ob, BMEditM
 
     if (changed) {
       if (swap) {
-        EDBM_selectmode_flush(bm, em->selectmode);
+        EDBM_selectmode_flush(em);
       }
       else {
-        EDBM_flag_disable_all(bm, BM_ELEM_SELECT);
+        EDBM_flag_disable_all(em, BM_ELEM_SELECT);
       }
       /* Clearing is OK even when hiding unselected
        * as the remaining geometry is entirely selected. */
-      EDBM_uvselect_clear(bm);
+      EDBM_uvselect_clear(em);
     }
   }
 
@@ -1997,8 +2008,8 @@ static bool uv_mesh_hide_no_sync(const Scene *scene, Object *ob, BMEditMesh *em,
 {
   const ToolSettings *ts = scene->toolsettings;
   BLI_assert(!(ts->uv_flag & UV_FLAG_SELECT_SYNC));
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
 
+  BMesh *bm = em->bm;
   BMFace *efa;
   BMLoop *l;
   const bool use_face_center = (ts->uv_selectmode == UV_SELECT_FACE);
@@ -2297,7 +2308,6 @@ static wmOperatorStatus uv_reveal_exec(bContext *C, wmOperator *op)
 
   for (Object *ob : objects) {
     BMEditMesh *em = BKE_editmesh_from_object(ob);
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
     BMFace *efa;
     BMLoop *l;
     BMIter iter, liter;
@@ -2309,7 +2319,7 @@ static wmOperatorStatus uv_reveal_exec(bContext *C, wmOperator *op)
 
     /* call the mesh function if we are in mesh sync sel */
     if (ts->uv_flag & UV_FLAG_SELECT_SYNC) {
-      if (EDBM_mesh_reveal(bm, em->selectmode, select)) {
+      if (EDBM_mesh_reveal(em, select)) {
         Mesh *mesh = id_cast<Mesh *>(ob->data);
         EDBMUpdate_Params params = {0};
         params.calc_looptris = true;
@@ -2326,21 +2336,21 @@ static wmOperatorStatus uv_reveal_exec(bContext *C, wmOperator *op)
      * + edge flags) */
     if (use_face_center) {
       if (em->selectmode == SCE_SELECT_FACE) {
-        BM_ITER_MESH (efa, &iter, bm, BM_FACES_OF_MESH) {
+        BM_ITER_MESH (efa, &iter, em->bm, BM_FACES_OF_MESH) {
           BM_elem_flag_disable(efa, BM_ELEM_TAG);
           if (!BM_elem_flag_test(efa, BM_ELEM_HIDDEN) && !BM_elem_flag_test(efa, BM_ELEM_SELECT)) {
             BM_ITER_ELEM (l, &liter, efa, BM_LOOPS_OF_FACE) {
-              uvedit_vert_select_set_no_sync(ts, bm, l, select);
-              uvedit_edge_select_set_no_sync(ts, bm, l, select);
+              uvedit_vert_select_set_no_sync(ts, em->bm, l, select);
+              uvedit_edge_select_set_no_sync(ts, em->bm, l, select);
             }
-            uvedit_face_select_set_no_sync(ts, bm, efa, select);
-            // BM_face_select_set(bm, efa, true);
+            uvedit_face_select_set_no_sync(ts, em->bm, efa, select);
+            // BM_face_select_set(em->bm, efa, true);
             BM_elem_flag_enable(efa, BM_ELEM_TAG);
           }
         }
       }
       else {
-        BM_ITER_MESH (efa, &iter, bm, BM_FACES_OF_MESH) {
+        BM_ITER_MESH (efa, &iter, em->bm, BM_FACES_OF_MESH) {
           BM_elem_flag_disable(efa, BM_ELEM_TAG);
           if (!BM_elem_flag_test(efa, BM_ELEM_HIDDEN) && !BM_elem_flag_test(efa, BM_ELEM_SELECT)) {
             int totsel = 0;
@@ -2356,48 +2366,48 @@ static wmOperatorStatus uv_reveal_exec(bContext *C, wmOperator *op)
             if (!totsel) {
               BM_ITER_ELEM (l, &liter, efa, BM_LOOPS_OF_FACE) {
 
-                uvedit_vert_select_set_no_sync(ts, bm, l, select);
-                uvedit_edge_select_set_no_sync(ts, bm, l, select);
+                uvedit_vert_select_set_no_sync(ts, em->bm, l, select);
+                uvedit_edge_select_set_no_sync(ts, em->bm, l, select);
               }
             }
-            uvedit_face_select_set_no_sync(ts, bm, efa, select);
-            // BM_face_select_set(bm, efa, true);
+            uvedit_face_select_set_no_sync(ts, em->bm, efa, select);
+            // BM_face_select_set(em->bm, efa, true);
             BM_elem_flag_enable(efa, BM_ELEM_TAG);
           }
         }
       }
     }
     else if (em->selectmode == SCE_SELECT_FACE) {
-      BM_ITER_MESH (efa, &iter, bm, BM_FACES_OF_MESH) {
+      BM_ITER_MESH (efa, &iter, em->bm, BM_FACES_OF_MESH) {
         BM_elem_flag_disable(efa, BM_ELEM_TAG);
         if (!BM_elem_flag_test(efa, BM_ELEM_HIDDEN) && !BM_elem_flag_test(efa, BM_ELEM_SELECT)) {
           BM_ITER_ELEM (l, &liter, efa, BM_LOOPS_OF_FACE) {
-            uvedit_vert_select_set_no_sync(ts, bm, l, select);
-            uvedit_edge_select_set_no_sync(ts, bm, l, select);
+            uvedit_vert_select_set_no_sync(ts, em->bm, l, select);
+            uvedit_edge_select_set_no_sync(ts, em->bm, l, select);
           }
-          uvedit_face_select_set_no_sync(ts, bm, efa, select);
-          // BM_face_select_set(bm, efa, true);
+          uvedit_face_select_set_no_sync(ts, em->bm, efa, select);
+          // BM_face_select_set(em->bm, efa, true);
           BM_elem_flag_enable(efa, BM_ELEM_TAG);
         }
       }
     }
     else {
-      BM_ITER_MESH (efa, &iter, bm, BM_FACES_OF_MESH) {
+      BM_ITER_MESH (efa, &iter, em->bm, BM_FACES_OF_MESH) {
         BM_elem_flag_disable(efa, BM_ELEM_TAG);
         if (!BM_elem_flag_test(efa, BM_ELEM_HIDDEN) && !BM_elem_flag_test(efa, BM_ELEM_SELECT)) {
           BM_ITER_ELEM (l, &liter, efa, BM_LOOPS_OF_FACE) {
-            uvedit_vert_select_set_no_sync(ts, bm, l, select);
-            uvedit_edge_select_set_no_sync(ts, bm, l, select);
+            uvedit_vert_select_set_no_sync(ts, em->bm, l, select);
+            uvedit_edge_select_set_no_sync(ts, em->bm, l, select);
           }
-          uvedit_face_select_set_no_sync(ts, bm, efa, select);
-          // BM_face_select_set(bm, efa, true);
+          uvedit_face_select_set_no_sync(ts, em->bm, efa, select);
+          // BM_face_select_set(em->bm, efa, true);
           BM_elem_flag_enable(efa, BM_ELEM_TAG);
         }
       }
     }
 
     /* re-select tagged faces */
-    BM_mesh_elem_hflag_enable_test(bm, BM_FACE, BM_ELEM_SELECT, true, false, BM_ELEM_TAG);
+    BM_mesh_elem_hflag_enable_test(em->bm, BM_FACE, BM_ELEM_SELECT, true, false, BM_ELEM_TAG);
 
     DEG_id_tag_update(ob->data, ID_RECALC_SELECT);
     WM_event_add_notifier(C, NC_GEOM | ND_SELECT, ob->data);
@@ -2513,14 +2523,15 @@ static wmOperatorStatus uv_seams_from_islands_exec(bContext *C, wmOperator *op)
 
   for (Object *ob : objects) {
     Mesh *mesh = id_cast<Mesh *>(ob->data);
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(mesh);
+    BMEditMesh *em = mesh->runtime->edit_mesh.get();
+    BMesh *bm = em->bm;
     BMIter iter;
 
-    if (!EDBM_uv_check(mesh)) {
+    if (!EDBM_uv_check(em)) {
       continue;
     }
 
-    const BMUVOffsets offsets = BM_uv_map_offsets_get(bm);
+    const BMUVOffsets offsets = BM_uv_map_offsets_get(em->bm);
     bool changed = false;
 
     BMFace *f;
@@ -2537,7 +2548,7 @@ static wmOperatorStatus uv_seams_from_islands_exec(bContext *C, wmOperator *op)
         if (l_iter == l_iter->radial_next) {
           continue;
         }
-        if (!uvedit_edge_select_test(scene, bm, l_iter, offsets)) {
+        if (!uvedit_edge_select_test(scene, em->bm, l_iter, offsets)) {
           continue;
         }
 
@@ -2617,13 +2628,14 @@ static wmOperatorStatus uv_mark_seam_exec(bContext *C, wmOperator *op)
 
   for (Object *ob : objects) {
     Mesh *mesh = id_cast<Mesh *>(ob->data);
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(mesh);
+    BMEditMesh *em = mesh->runtime->edit_mesh.get();
+    BMesh *bm = em->bm;
 
     if (synced_selection && (bm->totedgesel == 0)) {
       continue;
     }
 
-    const BMUVOffsets offsets = BM_uv_map_offsets_get(bm);
+    const BMUVOffsets offsets = BM_uv_map_offsets_get(em->bm);
 
     BM_ITER_MESH (efa, &iter, bm, BM_FACES_OF_MESH) {
       if (uvedit_face_visible_test(scene, efa)) {
@@ -2843,11 +2855,12 @@ static wmOperatorStatus uv_copy_mirrored_faces_exec(bContext *C, wmOperator *op)
   int meshes_with_duplicates = 0;
 
   for (Object *obedit : objects) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(obedit);
+    BMEditMesh *em = BKE_editmesh_from_object(obedit);
 
     int double_warn = 0;
 
-    bool changed = uv_copy_mirrored_faces(scene, bm, mesh_axis, uv_axis, precision, &double_warn);
+    bool changed = uv_copy_mirrored_faces(
+        scene, em->bm, mesh_axis, uv_axis, precision, &double_warn);
 
     if (double_warn) {
       total_duplicates += double_warn;
@@ -2977,7 +2990,6 @@ void ED_operatormacros_uvedit()
                                     "Rip Move UVs",
                                     "Unstitch UVs and move the result",
                                     OPTYPE_UNDO | OPTYPE_REGISTER);
-  ot->cursor_pending = WM_CURSOR_CROSS;
   WM_operatortype_macro_define(ot, "UV_OT_rip");
   otmacro = WM_operatortype_macro_define(ot, "TRANSFORM_OT_translate");
   RNA_boolean_set(otmacro->ptr, "use_proportional_edit", false);

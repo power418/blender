@@ -161,29 +161,33 @@ static void calc_mesh(const Depsgraph &depsgraph,
                       const MeshAttributeData &attribute_data,
                       const bke::pbvh::MeshNode &node,
                       Object &object,
+                      BrushLocalData &tls,
                       const PositionDeformData &position_data)
 {
   SculptSession &ss = *object.runtime->sculpt_session;
   const StrokeCache &cache = *ss.cache;
 
   const Span<int> verts = node.verts();
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> positions(verts.size());
-  gather_data_mesh(position_data.eval, verts, positions.as_mutable_span());
+  const Span<float3> positions = gather_data_mesh(position_data.eval, verts, tls.positions);
   const OrigPositionData orig_data = orig_position_data_get_mesh(object, node);
 
-  Array<float, bke::pbvh::MESH_LEAF_LIMIT> factors(verts.size());
+  tls.factors.resize(verts.size());
+  const MutableSpan<float> factors = tls.factors;
   fill_factor_from_hide_and_mask(attribute_data.hide_vert, attribute_data.mask, verts, factors);
   auto_mask::calc_vert_factors(depsgraph, object, cache.automasking.get(), node, verts, factors);
 
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> translations(verts.size());
+  tls.translations.resize(verts.size());
+  const MutableSpan<float3> translations = tls.translations;
   translations.fill(float3(0));
 
-  Array<float, bke::pbvh::MESH_LEAF_LIMIT> segment_weights(verts.size());
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> segment_translations(verts.size());
+  tls.segment_weights.resize(verts.size());
+  tls.segment_translations.resize(verts.size());
+  const MutableSpan<float> segment_weights = tls.segment_weights;
+  const MutableSpan<float3> segment_translations = tls.segment_translations;
 
   for (const IKChainSegment &segment : cache.pose_ik_chain->segments) {
     calc_segment_translations(orig_data.positions, segment, segment_translations);
-    gather_data_mesh(segment.weights.as_span(), verts, segment_weights.as_mutable_span());
+    gather_data_mesh(segment.weights.as_span(), verts, segment_weights);
     scale_translations(segment_translations, segment_weights);
     add_arrays(translations, segment_translations);
   }
@@ -364,8 +368,7 @@ static void grow_factors_mesh(const ePaintSymmetryFlags symm,
                               const MutableSpan<float> pose_factor,
                               PoseGrowFactorData &gftd)
 {
-  Vector<int, bke::pbvh::MESH_LEAF_LIMIT> index_data;
-  const Span<int> verts = hide::node_visible_verts(node, hide_vert, index_data);
+  const Span<int> verts = hide::node_visible_verts(node, hide_vert, tls.vert_indices);
 
   calc_vert_neighbors(faces,
                       corner_verts,
@@ -2221,7 +2224,8 @@ void do_pose_brush(const Depsgraph &depsgraph,
       const PositionDeformData position_data(depsgraph, ob);
       node_mask.foreach_index(
           [&](const int i) {
-            calc_mesh(depsgraph, sd, brush, attribute_data, nodes[i], ob, position_data);
+            BrushLocalData &tls = all_tls.local();
+            calc_mesh(depsgraph, sd, brush, attribute_data, nodes[i], ob, tls, position_data);
             bke::pbvh::update_node_bounds_mesh(position_data.eval, nodes[i]);
           },
           exec_mode::grain_size(1));

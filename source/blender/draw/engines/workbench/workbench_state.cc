@@ -20,7 +20,6 @@
 
 #include "DEG_depsgraph_query.hh"
 
-#include "DNA_pointcloud_types.h"
 #include "DNA_world_types.h"
 
 #include "ED_paint.hh"
@@ -203,8 +202,6 @@ void SceneState::init(const DRWContext *context,
     reset_taa = true;
   }
 
-  view_forward = View::default_get().forward();
-
   bool is_playback = context->is_playback();
   bool is_navigating = context->is_navigating();
 
@@ -282,7 +279,7 @@ static bool mesh_has_color_attribute(const Mesh &mesh)
     return false;
   }
   if (mesh.runtime->wrapper_type == ME_WRAPPER_TYPE_BMESH) {
-    const BMesh &bm = *BKE_editmesh_bmesh_get(&mesh);
+    const BMesh &bm = *mesh.runtime->edit_mesh->bm;
     const BMDataLayerLookup attr = BM_data_layer_lookup(bm, name);
     return attr && bke::mesh::is_color_attribute(bke::AttributeMetaData{attr.domain, attr.type});
   }
@@ -294,7 +291,7 @@ static bool mesh_has_uv_map_attribute(const Mesh &mesh)
 {
   StringRef active_uv_map = mesh.active_or_default_uv_map_name();
   if (mesh.runtime->wrapper_type == ME_WRAPPER_TYPE_BMESH) {
-    const BMesh &bm = *BKE_editmesh_bmesh_get(&mesh);
+    const BMesh &bm = *mesh.runtime->edit_mesh->bm;
     const BMDataLayerLookup attr = BM_data_layer_lookup(bm, active_uv_map);
     return attr && bke::mesh::is_uv_map(bke::AttributeMetaData{attr.domain, attr.type});
   }
@@ -310,18 +307,10 @@ ObjectState::ObjectState(const DRWContext *draw_ctx,
 {
   const bool is_active = (ob == draw_ctx->obact);
 
-  const auto is_gsplat = [&]() {
-    if (ob->type == OB_POINTCLOUD) {
-      const PointCloud &pointcloud = DRW_object_get_data_for_drawing<PointCloud>(*ob);
-      return pointcloud.type == PointCloudType::GSplat;
-    }
-    return false;
-  };
-
   sculpt_pbvh = BKE_sculptsession_use_pbvh_draw(ob, draw_ctx->rv3d) &&
                 !draw_ctx->is_image_render();
   draw_shadow = scene_state.draw_shadows && (ob->dtx & OB_DRAW_NO_SHADOW_CAST) == 0 &&
-                !sculpt_pbvh && !is_gsplat() && !(is_active && DRW_object_use_hide_faces(ob));
+                !sculpt_pbvh && !(is_active && DRW_object_use_hide_faces(ob));
 
   color_type = eV3DShadingColorType(scene_state.shading.color_type);
 

@@ -53,7 +53,7 @@ class VKTexture : public Texture {
    * by particle hair).
    */
   VKVertexBuffer *source_buffer_ = nullptr;
-  VKResourceWithHandle<VkImage> resource_;
+  VkImage vk_image_ = VK_NULL_HANDLE;
   VkImageUsageFlags vk_image_usage_ = 0;
   VmaAllocation allocation_ = VK_NULL_HANDLE;
   VmaAllocationInfo allocation_info_ = {};
@@ -126,16 +126,8 @@ class VKTexture : public Texture {
     if (is_texture_view()) {
       return static_cast<VKTexture *>(source_texture_)->vk_image_handle();
     }
-    BLI_assert(resource_.vk_handle != VK_NULL_HANDLE);
-    return resource_.vk_handle;
-  }
-
-  ResourceHandle resource_handle() const
-  {
-    if (is_texture_view()) {
-      return static_cast<VKTexture *>(source_texture_)->resource_handle();
-    }
-    return resource_.resource_handle;
+    BLI_assert(vk_image_ != VK_NULL_HANDLE);
+    return vk_image_;
   }
 
   /**
@@ -169,7 +161,7 @@ class VKTexture : public Texture {
   bool init_internal(VertBuf *vbo) override;
   bool init_internal(gpu::Texture *src, bool use_stencil) override;
   /* Initialize VKTexture with a swapchain image. */
-  void init_swapchain(VkImage vk_image, ResourceHandle resource_handle, TextureFormat gpu_format);
+  void init_swapchain(VkImage vk_image, TextureFormat gpu_format);
 
  private:
   /**

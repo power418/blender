@@ -29,7 +29,6 @@ struct SymbolFunction : SymbolScope {
 
   ast::FuncDecl decl = {};
 
-  vector<bool> arg_const;
   vector<SymbolClass *> arg_types;
   vector<ast::Expr> arg_defaults;
 
@@ -37,17 +36,11 @@ struct SymbolFunction : SymbolScope {
   /* False if this is a template root and is not a symbol to match on. */
   bool is_complete = true;
   /* If true, will allow vector type casting. */
-  bool allow_vector_promotion = false;
-  /* If true, is part of language builtin functions. */
   bool is_builtin = false;
-  /* If true, this builtin function is implemented as constexpr. */
-  bool is_constexpr = false;
   /* True for template specialization and instantiation. */
   bool is_specialization = false;
-  /* True for force-inlined functions. */
+  /* True for template specialization and instantiation. */
   bool is_inline = false;
-  /* False if this function was only forward declared. */
-  bool is_defined = true;
 
   /* Identifier of the temporary return variable.
    * The real identifier is then specialized per instantiation. */
@@ -56,10 +49,9 @@ struct SymbolFunction : SymbolScope {
   enum Type { STATIC, MEMBER, GLOBAL } fn_type;
   enum class EntryPointType { FRAG, VERT, COMP, NONE } entry_point_type;
 
-  template<typename AstNodeT>
   SymbolFunction(SymbolScope *parent,
                  SymbolClass *return_type,
-                 AstNodeT decl,
+                 ast::FuncDecl decl,
                  const string &suffix = "")
       : SymbolScope(
             parent, decl.front(), string(decl.identifier().name().str()) + suffix, FUNCTION),
@@ -72,7 +64,7 @@ struct SymbolFunction : SymbolScope {
     if (decl.is_method()) {
       loc = decl.parent(ast::NodeType::ClassDecl).front();
     }
-    for (ast::Attr attr : decl.attributes().template children_of_type<ast::Attr>()) {
+    for (ast::Attr attr : decl.attributes().children_of_type<ast::Attr>()) {
       string_view id = attr.identifier().str();
       if (id == "vertex") {
         entry_point_type = EntryPointType::VERT;
@@ -112,7 +104,7 @@ struct SymbolFunction : SymbolScope {
                                            const vector<SymbolClass *> &arg_types);
 
   void add_overload(SymbolFunction *fn);
-  void add_argument(bool is_const, SymbolClass *type, ast::Expr default_value = {});
+  void add_argument(SymbolClass *type, ast::Expr default_value = {});
 
   void reserve_arguments(int n);
 

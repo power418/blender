@@ -96,9 +96,8 @@ static void icon_free(void *val)
   if (icon->drawinfo_free) {
     icon->drawinfo_free(icon->drawinfo);
   }
-  else {
-    /* Draw info is owned by the editor, which must provide a callback to free it. */
-    BLI_assert(icon->drawinfo == nullptr);
+  else if (icon->drawinfo) {
+    MEM_delete_void(icon->drawinfo);
   }
   MEM_delete(icon);
 }

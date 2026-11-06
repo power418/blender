@@ -49,11 +49,11 @@ struct VolumeBatchCache {
   /* Wireframe */
   struct {
     gpu::VertBuf *pos_nor_in_order;
-    Batch *batch;
+    gpu::Batch *batch;
   } face_wire;
 
   /* Surface for selection */
-  Batch *selection_surface;
+  gpu::Batch *selection_surface;
 
   /* settings to determine if cache is invalid */
   bool is_dirty;
@@ -124,8 +124,8 @@ static void volume_batch_cache_clear(Volume *volume)
   cache->grids.free_no_destruct();
 
   GPU_VERTBUF_DISCARD_SAFE(cache->face_wire.pos_nor_in_order);
-  MEM_SAFE_DELETE(cache->face_wire.batch);
-  MEM_SAFE_DELETE(cache->selection_surface);
+  GPU_BATCH_DISCARD_SAFE(cache->face_wire.batch);
+  GPU_BATCH_DISCARD_SAFE(cache->selection_surface);
 }
 
 void DRW_volume_batch_cache_free(Volume *volume)
@@ -193,8 +193,8 @@ static void drw_volume_wireframe_cb(
 
   if (volume->display.wireframe_type == VOLUME_WIREFRAME_POINTS) {
     /* Create batch. */
-    cache->face_wire.batch = MEM_new<Batch>(
-        __func__, GPU_batch_create(GPU_PRIM_POINTS, cache->face_wire.pos_nor_in_order, nullptr));
+    cache->face_wire.batch = GPU_batch_create(
+        GPU_PRIM_POINTS, cache->face_wire.pos_nor_in_order, nullptr);
   }
   else {
     /* Create edge index buffer. */
@@ -206,16 +206,14 @@ static void drw_volume_wireframe_cb(
     gpu::IndexBuf *ibo = GPU_indexbuf_build(&elb);
 
     /* Create batch. */
-    cache->face_wire.batch = MEM_new<Batch>(
-        __func__,
-        GPU_batch_create_ex(
-            GPU_PRIM_LINES, cache->face_wire.pos_nor_in_order, ibo, GPU_BATCH_OWNS_INDEX));
+    cache->face_wire.batch = GPU_batch_create_ex(
+        GPU_PRIM_LINES, cache->face_wire.pos_nor_in_order, ibo, GPU_BATCH_OWNS_INDEX);
   }
 
-  GPU_batch_vertbuf_add(cache->face_wire.batch->gpu_batch(), vbo_wiredata, true);
+  GPU_batch_vertbuf_add(cache->face_wire.batch, vbo_wiredata, true);
 }
 
-Batch *DRW_volume_batch_cache_get_wireframes_face(Volume *volume)
+gpu::Batch *DRW_volume_batch_cache_get_wireframes_face(Volume *volume)
 {
   if (volume->display.wireframe_type == VOLUME_WIREFRAME_NONE) {
     return nullptr;
@@ -266,13 +264,11 @@ static void drw_volume_selection_surface_cb(
   }
   gpu::IndexBuf *ibo_surface = GPU_indexbuf_build(&elb);
 
-  cache->selection_surface = MEM_new<Batch>(
-      __func__,
-      GPU_batch_create_ex(
-          GPU_PRIM_TRIS, vbo_surface, ibo_surface, GPU_BATCH_OWNS_VBO | GPU_BATCH_OWNS_INDEX));
+  cache->selection_surface = GPU_batch_create_ex(
+      GPU_PRIM_TRIS, vbo_surface, ibo_surface, GPU_BATCH_OWNS_VBO | GPU_BATCH_OWNS_INDEX);
 }
 
-Batch *DRW_volume_batch_cache_get_selection_surface(Volume *volume)
+gpu::Batch *DRW_volume_batch_cache_get_selection_surface(Volume *volume)
 {
   VolumeBatchCache *cache = volume_batch_cache_get(volume);
   if (cache->selection_surface == nullptr) {

@@ -800,7 +800,12 @@ void uiTemplateImage(ui::Layout *layout,
   cb->ptr = *ptr;
   cb->prop = prop;
   cb->iuser = iuser;
-  block_funcN_set(block, rna_update_cb, cb, nullptr);
+  block_funcN_set(block,
+                  rna_update_cb,
+                  cb,
+                  nullptr,
+                  ui::but_func_argN_free<RNAUpdateCb>,
+                  ui::but_func_argN_copy<RNAUpdateCb>);
 
   /* Disable editing if image was modified, to avoid losing changes. */
   const bool is_dirty = BKE_image_is_dirty(ima);
@@ -950,7 +955,7 @@ void uiTemplateImage(ui::Layout *layout,
     }
   }
 
-  block_funcN_set(block, nullptr, nullptr, nullptr, nullptr, nullptr);
+  block_funcN_set(block, nullptr, nullptr, nullptr);
 }
 
 void uiTemplateImageSettings(ui::Layout *layout,

@@ -8,8 +8,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <optional>
-#include <utility>
 
 #include "MEM_guardedalloc.h"
 
@@ -17,14 +15,11 @@
 
 #include "BLI_fnmatch.hh"
 #include "BLI_listbase.hh"
-#include "BLI_map.hh"
 #include "BLI_mempool.hh"
 #include "BLI_rect.hh"
-#include "BLI_set.hh"
 #include "BLI_string.hh"
 #include "BLI_utildefines.hh"
 
-#include "BKE_collection.hh"
 #include "BKE_layer.hh"
 #include "BKE_main.hh"
 #include "BKE_modifier.hh"
@@ -318,101 +313,74 @@ struct tTreeSort {
   short idcode;
 };
 
-/* Move children that are not in the collection to the end of the list. */
-static std::optional<bool> treesort_child_not_in_collection(const tTreeSort &x1,
-                                                            const tTreeSort &x2)
+/* alphabetical comparator, trying to put objects first */
+static int treesort_alpha_ob(const void *v1, const void *v2)
 {
+  const tTreeSort *x1 = static_cast<const tTreeSort *>(v1);
+  const tTreeSort *x2 = static_cast<const tTreeSort *>(v2);
+
+  /* first put objects last (hierarchy) */
+  int comp = (x1->idcode == ID_OB);
+  if (x2->idcode == ID_OB) {
+    comp += 2;
+  }
+
+  if (comp == 1) {
+    return 1;
+  }
+  if (comp == 2) {
+    return -1;
+  }
+  if (comp == 3) {
+    /* Among objects first come the ones in the collection, followed by the ones not on it.
+     * This way we can have the dashed lines in a separate style connecting the former. */
+    if ((x1->te->flag & TE_CHILD_NOT_IN_COLLECTION) != (x2->te->flag & TE_CHILD_NOT_IN_COLLECTION))
+    {
+      return (x1->te->flag & TE_CHILD_NOT_IN_COLLECTION) ? 1 : -1;
+    }
+
+    comp = BLI_strcasecmp_natural(x1->name, x2->name);
+
+    if (comp > 0) {
+      return 1;
+    }
+    if (comp < 0) {
+      return -1;
+    }
+    return 0;
+  }
+  return 0;
+}
+
+/* Move children that are not in the collection to the end of the list. */
+static int treesort_child_not_in_collection(const void *v1, const void *v2)
+{
+  const tTreeSort *x1 = static_cast<const tTreeSort *>(v1);
+  const tTreeSort *x2 = static_cast<const tTreeSort *>(v2);
+
   /* Among objects first come the ones in the collection, followed by the ones not on it.
    * This way we can have the dashed lines in a separate style connecting the former. */
-  if ((x1.te->flag & TE_CHILD_NOT_IN_COLLECTION) != (x2.te->flag & TE_CHILD_NOT_IN_COLLECTION)) {
-    return (x2.te->flag & TE_CHILD_NOT_IN_COLLECTION) != 0;
+  if ((x1->te->flag & TE_CHILD_NOT_IN_COLLECTION) != (x2->te->flag & TE_CHILD_NOT_IN_COLLECTION)) {
+    return (x1->te->flag & TE_CHILD_NOT_IN_COLLECTION) ? 1 : -1;
   }
-  return std::nullopt;
+  return 0;
 }
 
-static bool treesort_alpha(const tTreeSort &x1, const tTreeSort &x2)
+/* alphabetical comparator */
+static int treesort_alpha(const void *v1, const void *v2)
 {
-  const int comp = BLI_strcasecmp_natural(x1.name, x2.name);
+  const tTreeSort *x1 = static_cast<const tTreeSort *>(v1);
+  const tTreeSort *x2 = static_cast<const tTreeSort *>(v2);
 
-  return comp < 0;
-}
+  int comp = BLI_strcasecmp_natural(x1->name, x2->name);
 
-static bool treesort_alpha_ob(const tTreeSort &x1, const tTreeSort &x2)
-{
-  const bool a_is_ob = (x1.idcode == ID_OB);
-  const bool b_is_ob = (x2.idcode == ID_OB);
-
-  if (a_is_ob && b_is_ob) {
-    if (std::optional<bool> comp = treesort_child_not_in_collection(x1, x2)) {
-      return *comp;
-    }
+  if (comp > 0) {
+    return 1;
   }
-
-  return outliner_treesort_tiebreak(a_is_ob, x1.name, b_is_ob, x2.name);
-}
-
-struct OutlinerSortMaps {
-  Map<std::pair<Collection *, Object *>, CollectionObject *> collection_and_object_to_cob_map;
-  Map<Object *, CollectionObject *> object_to_any_cob_map;
-};
-
-static int get_sort_index(const tTreeSort &x,
-                          const OutlinerSortMaps &sort_maps,
-                          const Map<Collection *, CollectionChild *> &collection_map,
-                          Collection *collection,
-                          const bool is_parented_object)
-{
-  if (x.idcode == ID_OB) {
-    Object *ob = reinterpret_cast<Object *>(x.id);
-    CollectionObject *cob = sort_maps.collection_and_object_to_cob_map.lookup_default(
-        {collection, ob}, nullptr);
-    if (cob == nullptr) {
-      cob = sort_maps.object_to_any_cob_map.lookup_default(ob, nullptr);
-    }
-    if (cob) {
-      int sort_idx = is_parented_object ? cob->parented_sort_index : cob->sort_index;
-      if (sort_idx >= 0) {
-        return sort_idx;
-      }
-    }
+  if (comp < 0) {
+    return -1;
   }
-  else {
-    Collection *child_col = outliner_collection_from_tree_element(x.te);
-    if (child_col != nullptr) {
-      CollectionChild *cc = collection_map.lookup_default(child_col, nullptr);
-      if (cc && cc->sort_index >= 0) {
-        return cc->sort_index;
-      }
-    }
-  }
-  return INT_MAX;
-}
-/* Sort object/collection entries in a parent collection by their `sort_index`,
- * using natural-name order only as a tie-breaker. Non-object/non-collection entries
- * keep their existing relative order. */
-static bool treesort_custom(const tTreeSort &x1,
-                            const tTreeSort &x2,
-                            const OutlinerSortMaps &sort_maps,
-                            const Map<Collection *, CollectionChild *> &collection_child_map,
-                            Collection *collection,
-                            const bool is_parented_object)
-{
-  const bool x1_valid = (x1.idcode == ID_OB) || outliner_is_collection_tree_element(x1.te);
-  const bool x2_valid = (x2.idcode == ID_OB) || outliner_is_collection_tree_element(x2.te);
-
-  if (!x1_valid || !x2_valid) {
-    return false;
-  }
-
-  int x1_sort_index = get_sort_index(
-      x1, sort_maps, collection_child_map, collection, is_parented_object);
-  int x2_sort_index = get_sort_index(
-      x2, sort_maps, collection_child_map, collection, is_parented_object);
-  if (x1_sort_index == x2_sort_index) {
-    return treesort_alpha_ob(x1, x2);
-  }
-
-  return x1_sort_index < x2_sort_index;
+  return 0;
 }
 
 /* this is nice option for later? doesn't look too useful... */
@@ -491,8 +459,7 @@ static void outliner_sort(ListBaseT<TreeElement> *lb)
     int totelem = lb->count();
 
     if (totelem > 1) {
-      Vector<tTreeSort> tear_vec(totelem);
-      tTreeSort *tear = tear_vec.data();
+      tTreeSort *tear = MEM_new_array_uninitialized<tTreeSort>(totelem, "tree sort array");
       tTreeSort *tp = tear;
 
       for (TreeElement &te : *lb) {
@@ -508,13 +475,15 @@ static void outliner_sort(ListBaseT<TreeElement> *lb)
         if (ELEM(tselem->type, TSE_ID_BASE, TSE_DEFGROUP, TSE_BONE, TSE_EBONE, TSE_POSE_CHANNEL)) {
           tp->idcode = 1; /* Do sort this. */
         }
+
+        tp->id = tselem->id;
         tp++;
       }
 
       /* Just sort alphabetically (but keep bone collections last when inside armature data). */
       if (tear->idcode == 1) {
         const int skip_back = has_armature_data_bone_collections ? 1 : 0;
-        std::sort(tear, tear + totelem - skip_back, treesort_alpha);
+        qsort(tear, totelem - skip_back, sizeof(tTreeSort), treesort_alpha);
       }
       else {
         /* keep beginning of list */
@@ -526,15 +495,17 @@ static void outliner_sort(ListBaseT<TreeElement> *lb)
         }
 
         if (skip_front < totelem) {
-          std::stable_sort(tear + skip_front, tear + totelem, treesort_alpha_ob);
+          qsort(tear + skip_front, totelem - skip_front, sizeof(tTreeSort), treesort_alpha_ob);
         }
       }
 
       lb->clear_no_delete();
       tp = tear;
-      for (int i = 0; i < totelem; i++, tp++) {
+      while (totelem--) {
         BLI_addtail(lb, tp->te);
+        tp++;
       }
+      MEM_delete(tear);
     }
   }
 
@@ -543,42 +514,20 @@ static void outliner_sort(ListBaseT<TreeElement> *lb)
   }
 }
 
-static void outliner_sort_custom(Main *bmain,
-                                 Scene *scene,
-                                 ListBaseT<TreeElement> *lb,
-                                 const OutlinerSortMaps &sort_maps)
+static void outliner_collections_children_sort(ListBaseT<TreeElement> *lb)
 {
   TreeElement *last_te = lb->last();
   if (last_te == nullptr) {
     return;
   }
+  TreeStoreElem *last_tselem = TREESTORE(last_te);
 
-  Collection *collection = nullptr;
-  bool is_parented_object = false;
-  if (last_te->parent != nullptr) {
-    collection = outliner_collection_from_tree_element(last_te->parent);
-    if (collection == nullptr) {
-      for (TreeElement *te_parent = last_te->parent; te_parent != nullptr;
-           te_parent = te_parent->parent)
-      {
-        collection = outliner_collection_from_tree_element(te_parent);
-        if (collection != nullptr) {
-          break;
-        }
-      }
-      if (last_te->parent->idcode == ID_OB) {
-        is_parented_object = true;
-      }
-    }
-  }
-
-  Map<Collection *, CollectionChild *> collection_child_map;
-  if (collection != nullptr) {
+  /* Sorting rules: only object lists. */
+  if ((last_tselem->type == TSE_SOME_ID) && (last_te->idcode == ID_OB)) {
     int totelem = lb->count();
 
-    if (totelem >= 1) {
-      Vector<tTreeSort> tear_vec(totelem);
-      tTreeSort *tear = tear_vec.data();
+    if (totelem > 1) {
+      tTreeSort *tear = MEM_new_array_uninitialized<tTreeSort>(totelem, "tree sort array");
       tTreeSort *tp = tear;
 
       for (TreeElement &te : *lb) {
@@ -587,88 +536,26 @@ static void outliner_sort_custom(Main *bmain,
         tp->name = te.name;
         tp->idcode = te.idcode;
         tp->id = tselem->id;
-
-        if (outliner_is_collection_tree_element(&te)) {
-          Collection *child_col = outliner_collection_from_tree_element(&te);
-          if (child_col != nullptr) {
-            CollectionChild *cc = BKE_collection_child_find(collection, child_col);
-            if (cc != nullptr) {
-              collection_child_map.add_new(child_col, cc);
-            }
-          }
-        }
         tp++;
       }
 
-      auto treesort_custom_fn =
-          [&sort_maps, &collection_child_map, collection, is_parented_object](const tTreeSort &a,
-                                                                              const tTreeSort &b) {
-            return treesort_custom(
-                a, b, sort_maps, collection_child_map, collection, is_parented_object);
-          };
-
-      std::stable_sort(tear, tear + totelem, treesort_custom_fn);
-      int index = 0;
-      for (tTreeSort element : tear_vec) {
-        if (element.idcode == ID_OB) {
-          Object *ob = reinterpret_cast<Object *>(element.id);
-          CollectionObject *cob = sort_maps.collection_and_object_to_cob_map.lookup_default(
-              {collection, ob}, nullptr);
-          if (cob == nullptr) {
-            cob = sort_maps.object_to_any_cob_map.lookup_default(ob, nullptr);
-          }
-          if (cob != nullptr) {
-            if (is_parented_object) {
-              cob->parented_sort_index = index++;
-            }
-            else {
-              cob->sort_index = index++;
-            }
-          }
-        }
-        else {
-          Collection *child_col = outliner_collection_from_tree_element(element.te);
-          if (child_col != nullptr) {
-            CollectionChild *cc = collection_child_map.lookup_default(child_col, nullptr);
-            if (cc != nullptr) {
-              cc->sort_index = index++;
-            }
-          }
-        }
-      }
+      qsort(tear, totelem, sizeof(tTreeSort), treesort_child_not_in_collection);
 
       lb->clear_no_delete();
       tp = tear;
-      for (int i = 0; i < totelem; i++, tp++) {
+      while (totelem--) {
         BLI_addtail(lb, tp->te);
+        tp++;
       }
+      MEM_delete(tear);
     }
   }
 
   for (TreeElement &te_iter : *lb) {
-    outliner_sort_custom(bmain, scene, &te_iter.subtree, sort_maps);
+    outliner_collections_children_sort(&te_iter.subtree);
   }
 }
 
-static void map_all_objects_to_collection(Collection *collection, OutlinerSortMaps &sort_maps)
-{
-  for (CollectionObject &cob : collection->gobject) {
-    sort_maps.collection_and_object_to_cob_map.add_overwrite({collection, cob.ob}, &cob);
-    sort_maps.object_to_any_cob_map.add_overwrite(cob.ob, &cob);
-  }
-  for (CollectionChild &child : collection->children) {
-    map_all_objects_to_collection(child.collection, sort_maps);
-  }
-}
-static void outliner_sort_custom(Main *bmain, Scene *scene, ListBaseT<TreeElement> *lb)
-{
-  OutlinerSortMaps sort_maps;
-  if (scene != nullptr) {
-    map_all_objects_to_collection(scene->master_collection, sort_maps);
-  }
-
-  outliner_sort_custom(bmain, scene, lb, sort_maps);
-}
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -1255,21 +1142,15 @@ void outliner_build_tree(Main *mainvar,
   space_outliner->runtime->tree = ListBaseT<TreeElement>{
       space_outliner->runtime->tree_display->build_tree(source_data)};
 
-  switch (space_outliner->sort_method) {
-    case SO_SORT_ALPHA:
-      outliner_sort(&space_outliner->runtime->tree);
-      break;
-
-    case SO_SORT_CUSTOM:
-      outliner_sort_custom(mainvar, scene, &space_outliner->runtime->tree);
-      break;
-
-    case SO_SORT_NONE:
-      break;
-
-    default:
-      BLI_assert_unreachable();
-      break;
+  if ((space_outliner->flag & SO_SKIP_SORT_ALPHA) == 0) {
+    outliner_sort(&space_outliner->runtime->tree);
+  }
+  else if ((space_outliner->filter & SO_FILTER_NO_CHILDREN) == 0) {
+    /* We group the children that are in the collection before the ones that are not.
+     * This way we can try to draw them in a different style altogether.
+     * We also have to respect the original order of the elements in case alphabetical
+     * sorting is not enabled. This keep object data and modifiers before its children. */
+    outliner_collections_children_sort(&space_outliner->runtime->tree);
   }
 
   outliner_filter_tree(*mainvar, space_outliner, scene, view_layer);

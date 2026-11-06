@@ -780,16 +780,7 @@ static void init_proportional_edit(TransInfo *t)
     {
       BLI_assert(t->obedit_type == OB_CURVES || t->obedit_type == OB_GREASE_PENCIL);
       if (t->flag & T_PROP_CONNECTED) {
-        /* Already calculated by #curve_connected_point_distances /
-         * #cyclic_curve_connected_point_distances. */
-      }
-      else {
-        set_prop_dist(t, false);
-      }
-    }
-    else if (t->data_type == &TransConvertType_Mask) {
-      if (t->flag & T_PROP_CONNECTED) {
-        /* Already calculated by #calc_distanceCurveVerts in #createTransMaskingData. */
+        /* Already calculated by #calculate_curve_point_distances_for_proportional_editing. */
       }
       else {
         set_prop_dist(t, false);
@@ -870,7 +861,7 @@ static void init_TransDataContainers(TransInfo *t, Object *obact, Span<Object *>
                                 0;
       }
 
-      if (object_mode & OB_MODE_EDIT || object_mode & OB_MODE_PAINT_GREASE_PENCIL) {
+      if (object_mode & OB_MODE_EDIT) {
         tc->obedit = objects[i];
         /* Check needed for UVs. */
         if ((t->flag & T_2D_EDIT) == 0) {
@@ -1028,19 +1019,21 @@ static TransConvertTypeInfo *convert_type_get(const TransInfo *t, Object **r_obj
   {
     return &TransConvertType_Particle;
   }
-  if (ob && ((ob->mode & OB_MODE_ALL_PAINT_MESH) || (ob->mode & OB_MODE_SCULPT_CURVES))) {
+  if (ob && ((ob->mode & OB_MODE_ALL_PAINT) || (ob->mode & OB_MODE_SCULPT_CURVES))) {
     if ((t->options & CTX_PAINT_CURVE) && !ELEM(t->mode, TFM_SHEAR, TFM_SHRINKFATTEN)) {
       return &TransConvertType_PaintCurve;
     }
     return nullptr;
   }
-  if (ob && ELEM(ob->mode,
-                 OB_MODE_VERTEX_GREASE_PENCIL,
-                 OB_MODE_SCULPT_GREASE_PENCIL,
-                 OB_MODE_WEIGHT_GREASE_PENCIL))
-  {
-    /* Draw and Edit mode handle transformations via #TransConverType_GreasePencil, avoid
-     * transformations otherwise. */
+  if (ob && (ob->mode & OB_MODE_ALL_PAINT_GPENCIL)) {
+    /* In Grease Pencil all transformations must be canceled if not Object or Edit mode.
+     * Exception: Grease Pencil sculpt mode allows for paint curves
+     * which need to be able to be transformed. */
+    if ((ob->mode & OB_MODE_SCULPT_GREASE_PENCIL) && (t->options & CTX_PAINT_CURVE) &&
+        !ELEM(t->mode, TFM_SHEAR, TFM_SHRINKFATTEN))
+    {
+      return &TransConvertType_PaintCurve;
+    }
     return nullptr;
   }
   return &TransConvertType_Object;

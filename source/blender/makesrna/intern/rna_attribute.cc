@@ -581,9 +581,9 @@ static int rna_Attribute_domain_get(PointerRNA *ptr)
   AttributeOwner owner = owner_from_attribute_pointer_rna(ptr);
   if (owner.type() == AttributeOwnerType::Mesh) {
     const Mesh *mesh = owner.get_mesh();
-    if (const BMesh *bm = BKE_editmesh_bmesh_get(mesh)) {
+    if (BMEditMesh *em = mesh->runtime->edit_mesh.get()) {
       return int(
-          BKE_attribute_domain(*mesh, *bm, static_cast<const CustomDataLayer *>(ptr->data)));
+          BKE_attribute_domain(*mesh, *em->bm, static_cast<const CustomDataLayer *>(ptr->data)));
     }
   }
   const bke::Attribute *attr = static_cast<const bke::Attribute *>(ptr->data);
@@ -616,13 +616,26 @@ void rna_Attribute_data_begin(CollectionPropertyIterator *iter, PointerRNA *ptr)
 
   bke::Attribute *attr = ptr->data_as<bke::Attribute>();
   const int domain_size = accessor.domain_size(attr->domain());
-  bke::GList &data = attr->data();
-  BLI_assert(data.size() == domain_size);
+  const CPPType &type = bke::attribute_type_to_cpp_type(attr->data_type());
 
-  /* Convert storage to array data until single-value access API is developed. */
-  data.ensure_array_storage();
-  const GMutableSpan span = std::get<GMutableSpan>(data.values_for_write());
-  rna_iterator_array_begin(iter, ptr, span.data(), span.type().size, domain_size, false, nullptr);
+  auto begin_array = [&]() {
+    const auto &data = std::get<bke::Attribute::ArrayData>(attr->data_for_write());
+    rna_iterator_array_begin(iter, ptr, data.data, type.size, domain_size, false, nullptr);
+  };
+  switch (attr->storage_type()) {
+    case bke::AttrStorageType::Array: {
+      begin_array();
+      break;
+    }
+    case bke::AttrStorageType::Single: {
+      /* Convert storage to array data until single-value access API is developed. */
+      const auto &data = std::get<bke::Attribute::SingleData>(attr->data());
+      const GPointer value(type, data.value);
+      attr->assign_data(bke::Attribute::ArrayData::from_value(value, domain_size));
+      begin_array();
+      break;
+    }
+  }
 }
 
 int rna_Attribute_data_length(PointerRNA *ptr)
@@ -806,9 +819,9 @@ static PointerRNA rna_AttributeGroupID_new(
   AttributeOwner owner = AttributeOwner::from_id(id);
   if (owner.type() == AttributeOwnerType::Mesh) {
     Mesh *mesh = owner.get_mesh();
-    if (BMesh *bm = BKE_editmesh_bmesh_get_for_write(mesh)) {
+    if (BMEditMesh *em = mesh->runtime->edit_mesh.get()) {
       CustomDataLayer *layer = BKE_attribute_new(
-          *mesh, *bm, name, eCustomDataType(type), AttrDomain(domain), reports);
+          *mesh, *em->bm, name, eCustomDataType(type), AttrDomain(domain), reports);
       if (!layer) {
         return {};
       }
@@ -850,9 +863,11 @@ static PointerRNA rna_AttributeGroupID_new(
 
   bke::AttributeStorage &attributes = *owner.get_storage();
   const CPPType &cpp_type = *bke::custom_data_type_to_cpp_type(eCustomDataType(type));
-  bke::Attribute &attr = attributes.add(BKE_attribute_calc_unique_name(owner, name),
-                                        AttrDomain(domain),
-                                        bke::Attribute::default_array_data(cpp_type, domain_size));
+  bke::Attribute &attr = attributes.add(
+      BKE_attribute_calc_unique_name(owner, name),
+      AttrDomain(domain),
+      *bke::custom_data_type_to_attr_type(eCustomDataType(type)),
+      bke::Attribute::ArrayData::from_default_value(cpp_type, domain_size));
 
   if (owner.type() == AttributeOwnerType::Mesh) {
     Mesh *mesh = owner.get_mesh();
@@ -920,7 +935,7 @@ void rna_AttributeGroup_iterator_begin(CollectionPropertyIterator *iter,
   AttributeOwner owner = owner_from_pointer_rna(ptr);
   if (owner.type() == AttributeOwnerType::Mesh) {
     Mesh *mesh = owner.get_mesh();
-    if (BMesh *bm = const_cast<BMesh *>(BKE_editmesh_bmesh_get(mesh))) {
+    if (BMEditMesh *em = mesh->runtime->edit_mesh.get()) {
       Vector<CustomDataLayer *, 16> layers;
       const auto add_layers = [&](CustomData &data) {
         for (CustomDataLayer &layer : MutableSpan(data.layers, data.totlayer)) {
@@ -934,16 +949,16 @@ void rna_AttributeGroup_iterator_begin(CollectionPropertyIterator *iter,
         }
       };
       if (domain_mask & ATTR_DOMAIN_MASK_POINT) {
-        add_layers(bm->vdata);
+        add_layers(em->bm->vdata);
       }
       if (domain_mask & ATTR_DOMAIN_MASK_EDGE) {
-        add_layers(bm->edata);
+        add_layers(em->bm->edata);
       }
       if (domain_mask & ATTR_DOMAIN_MASK_FACE) {
-        add_layers(bm->pdata);
+        add_layers(em->bm->pdata);
       }
       if (domain_mask & ATTR_DOMAIN_MASK_CORNER) {
-        add_layers(bm->ldata);
+        add_layers(em->bm->ldata);
       }
       VectorData data = layers.release();
       rna_iterator_array_begin(
@@ -1022,8 +1037,8 @@ PointerRNA rna_AttributeGroup_lookup_string(const PointerRNA &ptr,
   AttributeOwner owner = owner_from_pointer_rna(&ptr);
   if (owner.type() == AttributeOwnerType::Mesh) {
     const Mesh *mesh = owner.get_mesh();
-    if (const BMesh *bm = BKE_editmesh_bmesh_get(mesh)) {
-      const BMDataLayerLookup attr = BM_data_layer_lookup(*bm, key);
+    if (BMEditMesh *em = mesh->runtime->edit_mesh.get()) {
+      const BMDataLayerLookup attr = BM_data_layer_lookup(*em->bm, key);
       if (!attr) {
         return {};
       }
@@ -1307,9 +1322,11 @@ static PointerRNA rna_AttributeGroupGreasePencilDrawing_new(ID *grease_pencil_id
 
   bke::AttributeStorage &attributes = *owner.get_storage();
   const CPPType &cpp_type = *bke::custom_data_type_to_cpp_type(eCustomDataType(type));
-  bke::Attribute &attr = attributes.add(attributes.unique_name_calc(name),
-                                        AttrDomain(domain),
-                                        bke::Attribute::default_array_data(cpp_type, domain_size));
+  bke::Attribute &attr = attributes.add(
+      attributes.unique_name_calc(name),
+      AttrDomain(domain),
+      *bke::custom_data_type_to_attr_type(eCustomDataType(type)),
+      bke::Attribute::ArrayData::from_default_value(cpp_type, domain_size));
 
   DEG_id_tag_update(grease_pencil_id, ID_RECALC_GEOMETRY);
   WM_main_add_notifier(NC_GEOM | ND_DATA, grease_pencil_id);

@@ -106,29 +106,19 @@ void set_tile_values(openvdb::GridBase &grid_base, GSpan values, Span<openvdb::C
 /**
  * Deactivate values for the given voxels in a leaf node. A leaf node must exist at the given
  * coordinates.
- * \param set_background Set the values of deactivated voxels to the background value.
  */
 void set_leaf_values_off(openvdb::GridBase &grid_base,
                          const openvdb::Coord &probe_coord,
-                         Span<bool> selection,
-                         bool set_background);
-/**
- * Deactivate values for the given voxels in the grid.
- * \param set_background Set the values of deactivated voxels to the background value.
- */
+                         Span<bool> selection);
+/** Deactivate values for the given voxels in the grid. */
 void set_grid_values_off(openvdb::GridBase &grid_base,
                          Span<bool> selection,
-                         Span<openvdb::Coord> voxels,
-                         bool set_background);
+                         Span<openvdb::Coord> voxels);
 
-/**
- * Deactivate values for the given tiles in the grid.
- * \param set_background Set the values of deactivated voxels to the background value.
- */
+/** Deactivate values for the given tiles in the grid. */
 void set_tile_values_off(openvdb::GridBase &grid_base,
                          Span<bool> selection,
-                         Span<openvdb::CoordBBox> tiles,
-                         bool set_background);
+                         Span<openvdb::CoordBBox> tiles);
 
 /**
  * Boolean grids are stored as bitmaps, but we often have to process arrays of booleans. This

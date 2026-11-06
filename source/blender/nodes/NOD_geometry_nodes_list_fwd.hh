@@ -8,13 +8,12 @@
 
 #pragma once
 
-#include "BKE_list_fwd.hh"
-
 namespace blender::nodes {
 
-using bke::GList;
-using bke::GListPtr;
-using bke::List;
-using bke::ListPtr;
+class GList;
+class GListPtr;
+
+template<typename T> class List;
+template<typename T> class ListPtr;
 
 }  // namespace blender::nodes

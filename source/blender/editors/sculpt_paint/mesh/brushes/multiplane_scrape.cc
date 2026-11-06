@@ -147,17 +147,18 @@ static void sample_node_surface_mesh(const Depsgraph &depsgraph,
                                      const Span<float3> vert_normals,
                                      const MeshAttributeData &attribute_data,
                                      const bke::pbvh::MeshNode &node,
-                                     ScrapeSampleData &sample)
+                                     ScrapeSampleData &sample,
+                                     LocalData &tls)
 {
   PRF_scope(ProfileCategory::Editor);
   const SculptSession &ss = *object.runtime->sculpt_session;
   const StrokeCache &cache = *ss.cache;
 
   const Span<int> verts = node.verts();
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> positions(verts.size());
-  gather_data_mesh(vert_positions, verts, positions.as_mutable_span());
+  const MutableSpan positions = gather_data_mesh(vert_positions, verts, tls.positions);
 
-  Array<float, bke::pbvh::MESH_LEAF_LIMIT> factors(verts.size());
+  tls.factors.resize(verts.size());
+  const MutableSpan<float> factors = tls.factors;
   fill_factor_from_hide_and_mask(attribute_data.hide_vert, attribute_data.mask, verts, factors);
   filter_region_clip_factors(ss, positions, factors);
   if (brush.flag & BRUSH_FRONTFACE) {
@@ -167,7 +168,8 @@ static void sample_node_surface_mesh(const Depsgraph &depsgraph,
 
   const float radius = cache.radius * brush.normal_radius_factor;
 
-  Array<float, bke::pbvh::MESH_LEAF_LIMIT> distances(verts.size());
+  tls.distances.resize(verts.size());
+  const MutableSpan<float> distances = tls.distances;
   calc_brush_distances(ss, positions, eBrushFalloffShape(brush.falloff_shape), distances);
   filter_distances_with_radius(radius, distances, factors);
   apply_hardness_to_distances(radius, cache.hardness, distances);
@@ -177,11 +179,11 @@ static void sample_node_surface_mesh(const Depsgraph &depsgraph,
                                radius,
                                factors);
 
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> local_positions(verts.size());
+  tls.local_positions.resize(verts.size());
+  MutableSpan<float3> local_positions = tls.local_positions;
   math::transform_points(positions, mat, local_positions, false);
 
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> normals(verts.size());
-  gather_data_mesh(vert_normals, verts, normals.as_mutable_span());
+  const MutableSpan normals = gather_data_mesh(vert_normals, verts, tls.normals);
 
   accumulate_samples(positions, local_positions, normals, factors, sample);
 }
@@ -311,6 +313,7 @@ static std::optional<ScrapeSampleData> sample_surface(const Depsgraph &depsgraph
           1,
           ScrapeSampleData{},
           [&](const IndexRange range, ScrapeSampleData sample) {
+            LocalData &tls = all_tls.local();
             node_mask.slice(range).foreach_index([&](const int i) {
               sample_node_surface_mesh(depsgraph,
                                        object,
@@ -320,7 +323,8 @@ static std::optional<ScrapeSampleData> sample_surface(const Depsgraph &depsgraph
                                        vert_normals,
                                        attribute_data,
                                        nodes[i],
-                                       sample);
+                                       sample,
+                                       tls);
             });
             return sample;
           },
@@ -375,16 +379,17 @@ static void calc_faces(const Depsgraph &depsgraph,
                        const MeshAttributeData &attribute_data,
                        const bke::pbvh::MeshNode &node,
                        Object &object,
+                       LocalData &tls,
                        const PositionDeformData &position_data)
 {
   SculptSession &ss = *object.runtime->sculpt_session;
   const StrokeCache &cache = *ss.cache;
 
   const Span<int> verts = node.verts();
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> positions(verts.size());
-  gather_data_mesh<float3>(position_data.eval, verts, positions);
+  const MutableSpan positions = gather_data_mesh(position_data.eval, verts, tls.positions);
 
-  Array<float, bke::pbvh::MESH_LEAF_LIMIT> factors(verts.size());
+  tls.factors.resize(verts.size());
+  const MutableSpan<float> factors = tls.factors;
   fill_factor_from_hide_and_mask(attribute_data.hide_vert, attribute_data.mask, verts, factors);
   filter_region_clip_factors(ss, positions, factors);
   if (brush.flag & BRUSH_FRONTFACE) {
@@ -392,12 +397,14 @@ static void calc_faces(const Depsgraph &depsgraph,
   }
   auto_mask::calc_vert_factors(depsgraph, object, cache.automasking.get(), node, verts, factors);
 
-  Array<float, bke::pbvh::MESH_LEAF_LIMIT> distances(verts.size());
+  tls.distances.resize(verts.size());
+  const MutableSpan<float> distances = tls.distances;
   /* NOTE: The distances are not used from this call, it's only used for filtering. */
   calc_brush_distances(ss, positions, eBrushFalloffShape(brush.falloff_shape), distances);
   filter_distances_with_radius(cache.radius, distances, factors);
 
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> local_positions(verts.size());
+  tls.local_positions.resize(verts.size());
+  MutableSpan<float3> local_positions = tls.local_positions;
   math::transform_points(positions, mat, local_positions, false);
 
   if (angle >= 0.0f) {
@@ -412,7 +419,8 @@ static void calc_faces(const Depsgraph &depsgraph,
   apply_hardness_to_distances(cache, distances);
   calc_brush_strength_factors(cache, brush, distances, factors);
 
-  Array<float3, bke::pbvh::MESH_LEAF_LIMIT> translations(verts.size());
+  tls.translations.resize(verts.size());
+  MutableSpan<float3> translations = tls.translations;
   calc_translations(positions, local_positions, scrape_planes, translations);
 
   filter_plane_trim_limit_factors(brush, cache, translations, factors);
@@ -689,6 +697,7 @@ void do_multiplane_scrape_brush(const Depsgraph &depsgraph,
       const Span<float3> vert_normals = bke::pbvh::vert_normals_eval(depsgraph, object);
       node_mask.foreach_index(
           [&](const int i) {
+            LocalData &tls = all_tls.local();
             calc_faces(depsgraph,
                        sd,
                        brush,
@@ -700,6 +709,7 @@ void do_multiplane_scrape_brush(const Depsgraph &depsgraph,
                        attribute_data,
                        nodes[i],
                        object,
+                       tls,
                        position_data);
             bke::pbvh::update_node_bounds_mesh(position_data.eval, nodes[i]);
           },

@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include "gpu_shader_utildefines.bsl.hh"
 #include "image_shader_shared.hh"
 
 #define Z_DEPTH_BORDER 1.0f
@@ -21,19 +20,19 @@ float4 image_engine_apply_parameters(float4 color,
                                      float near_distance)
 {
   float4 result = color;
-  if (flag_test(flags, IMAGE_DRAW_FLAG_APPLY_ALPHA)) {
+  if ((flags & IMAGE_DRAW_FLAG_APPLY_ALPHA) != 0) {
     if (!is_image_premultiplied) {
       result.rgb *= result.a;
     }
   }
-  if (flag_test(flags, IMAGE_DRAW_FLAG_DEPTH)) {
+  if ((flags & IMAGE_DRAW_FLAG_DEPTH) != 0) {
     result = smoothstep(far_distance, near_distance, result);
   }
 
-  if (flag_test(flags, IMAGE_DRAW_FLAG_SHUFFLING)) {
+  if ((flags & IMAGE_DRAW_FLAG_SHUFFLING) != 0) {
     result = float4(dot(result, shuffle_color));
   }
-  if (!flag_test(flags, IMAGE_DRAW_FLAG_SHOW_ALPHA)) {
+  if ((flags & IMAGE_DRAW_FLAG_SHOW_ALPHA) == 0) {
     result.a = 1.0f;
   }
   return result;

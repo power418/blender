@@ -217,7 +217,7 @@ Block *template_common_search_menu(const bContext *C,
                          searchbox_create_generic,
                          search_update_fn,
                          search_arg,
-                         nullptr,
+                         false,
                          nullptr,
                          search_exec_fn,
                          active_item);

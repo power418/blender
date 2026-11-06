@@ -69,7 +69,7 @@ struct EstimateHomographyOptions {
   // Normalize correspondencies before estimating the homography
   // in order to increase estimation stability.
   //
-  // Normalization will make it so centroid od correspondences
+  // Normaliztion will make it so centroid od correspondences
   // is the coordinate origin and their average distance from
   // the origin is sqrt(2).
   //

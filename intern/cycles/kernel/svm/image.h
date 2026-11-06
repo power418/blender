@@ -19,14 +19,10 @@
 
 CCL_NAMESPACE_BEGIN
 
-ccl_device float4 svm_image_texture(KernelGlobals kg,
-                                    ccl_private ShaderData *sd,
-                                    const int id,
-                                    const dual2 uv,
-                                    const uint flags,
-                                    const float4 missing_rgba)
+ccl_device float4 svm_image_texture(
+    KernelGlobals kg, ccl_private ShaderData *sd, const int id, const dual2 uv, const uint flags)
 {
-  float4 r = kernel_image_interp_with_udim(kg, sd, id, uv, missing_rgba);
+  float4 r = kernel_image_interp_with_udim(kg, sd, id, uv);
   const float alpha = r.w;
 
   if ((flags & NODE_IMAGE_ALPHA_UNASSOCIATE) && alpha != 1.0f && alpha != 0.0f) {
@@ -66,13 +62,10 @@ ccl_device_noinline void svm_node_tex_image(KernelGlobals kg,
                                             ccl_private float *ccl_restrict stack,
                                             const ccl_global SVMNodeTexImage &ccl_restrict node)
 {
-  const float3 missing = stack_load(stack, node.missing);
-  const float missing_alpha = stack_load(stack, node.missing_alpha);
   const Float3Type co = stack_load<Float3Type>(stack, node.co);
   const dual2 tex_co(svm_node_tex_image_mapping(co, node.projection));
 
-  const float4 f = svm_image_texture(
-      kg, sd, node.id, tex_co, node.flags, make_float4(missing, missing_alpha));
+  const float4 f = svm_image_texture(kg, sd, node.id, tex_co, node.flags);
 
   if (stack_valid(node.out_offset)) {
     stack_store_float3(stack, node.out_offset, make_float3(f));
@@ -157,25 +150,20 @@ ccl_device_noinline void svm_node_tex_image_box(KernelGlobals kg,
   /* now fetch textures */
   float4 f = zero_float4();
 
-  const float3 missing = stack_load(stack, node.missing);
-  const float missing_alpha = stack_load(stack, node.missing_alpha);
   const dual3 co = dual3(stack_load<Float3Type>(stack, node.co));
 
   /* Map so that no textures are flipped, rotation is somewhat arbitrary. */
   if (weight.x > 0.0f) {
     const dual2 uv = make_float2((signed_N.x < 0.0f) ? 1.0f - co.y() : co.y(), co.z());
-    f += weight.x *
-         svm_image_texture(kg, sd, node.id, uv, node.flags, make_float4(missing, missing_alpha));
+    f += weight.x * svm_image_texture(kg, sd, node.id, uv, node.flags);
   }
   if (weight.y > 0.0f) {
     const dual2 uv = make_float2((signed_N.y > 0.0f) ? 1.0f - co.x() : co.x(), co.z());
-    f += weight.y *
-         svm_image_texture(kg, sd, node.id, uv, node.flags, make_float4(missing, missing_alpha));
+    f += weight.y * svm_image_texture(kg, sd, node.id, uv, node.flags);
   }
   if (weight.z > 0.0f) {
     const dual2 uv = make_float2((signed_N.z > 0.0f) ? 1.0f - co.y() : co.y(), co.x());
-    f += weight.z *
-         svm_image_texture(kg, sd, node.id, uv, node.flags, make_float4(missing, missing_alpha));
+    f += weight.z * svm_image_texture(kg, sd, node.id, uv, node.flags);
   }
 
   if (stack_valid(node.out_offset)) {
@@ -203,13 +191,10 @@ ccl_device_noinline void svm_node_tex_environment(
     ccl_private float *ccl_restrict stack,
     const ccl_global SVMNodeTexEnvironment &ccl_restrict node)
 {
-  const float3 missing = stack_load(stack, node.missing);
-  const float missing_alpha = stack_load(stack, node.missing_alpha);
   const Float3Type co = stack_load<Float3Type>(stack, node.co);
   const dual2 uv(svm_node_tex_environment_projection(co, node.projection));
 
-  const float4 f = svm_image_texture(
-      kg, sd, node.id, uv, node.flags, make_float4(missing, missing_alpha));
+  const float4 f = svm_image_texture(kg, sd, node.id, uv, node.flags);
 
   if (stack_valid(node.out_offset)) {
     stack_store_float3(stack, node.out_offset, make_float3(f.x, f.y, f.z));

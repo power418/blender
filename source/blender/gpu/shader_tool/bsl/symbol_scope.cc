@@ -57,12 +57,9 @@ Result<SymbolFunction *> SymbolScope::lookup_function(const SymbolTable &table,
     /* Try to resolve type constructors (only for builtins for now). */
     if (auto [cls, err_cls] = lookup_class(table, id); !cls->is_error && cls && cls->is_builtin())
     {
-      /* Some builtin types have no constructor (e.g. `bool32_t`). */
-      if (SymbolFunction *ctor = table.root->lookup_function(cls->identifier)) {
-        return {ctor, {}};
-      }
+      return {root_scope()->lookup_function(cls->identifier), {}};
     }
-    return {func, err ? err : AstNodeException{id, Diag::UnknownFunction, string(id.str())}};
+    return {func, err ? err : AstNodeException{id, Diag::UnknownFunction}};
   }
 
   if (func->template_data) {
@@ -133,22 +130,21 @@ SymbolVariable *SymbolScope::lookup_variable(const SymbolTable &table, IdQualifi
   return lookup_generic<SymbolVariable>(table, id, id.front());
 }
 
-std::pair<ast::FuncForwardDecl, SymbolFunction *> SymbolScope::lookup_function_forward_decl(
-    ast::FuncDecl decl) const
+ast::FuncForwardDecl SymbolScope::lookup_function_forward_decl(ast::FuncDecl decl) const
 {
   /* Note: while this linear search might seem very slow, it is only concerning a handful of
    * functions. */
-  for (const auto &fwd : function_prototypes) {
+  for (ast::FuncForwardDecl fwd : function_prototypes) {
     /* Check identifier. */
-    if (fwd.first.identifier().str() != decl.identifier().str()) {
+    if (fwd.identifier().str() != decl.identifier().str()) {
       continue;
     }
     /* Check return type. */
-    if (fwd.first.return_type().str() != decl.return_type().str()) {
+    if (fwd.return_type().str() != decl.return_type().str()) {
       continue;
     }
     /* Check arg type. */
-    FuncArg fwd_arg = fwd.first.arguments().child_first();
+    FuncArg fwd_arg = fwd.arguments().child_first();
     FuncArg decl_par = decl.arguments().child_first();
     while (fwd_arg.is_valid() &&
            /* Check type. */
@@ -229,19 +225,6 @@ T *SymbolScope::lookup_generic(const SymbolTable &table,
   {
     LOOKUP_LOG("[Lookup] Symbol found locally '" << identifier << "'.\n")
     return v;
-  }
-
-  /* Try to resolve in class scope if this is a member function scope (contains 'this_'). */
-  if (auto it = variables.find("this_"); it != variables.end()) {
-    LOOKUP_LOG("[Lookup] Member function scope ('this_' found). Checking class scope...\n")
-    const SymbolVariable *this_var = it->second.second;
-    /* Resolve class pointer/type from `this_` symbol */
-    const SymbolClass *cls = this_var->type;
-    const SymbolScope *this_scope = static_cast<const SymbolScope *>(cls);
-    if (auto v = this_scope->lookup_generic<T>(table, id, loc); v && !v->is_error) {
-      LOOKUP_LOG("[Lookup] Symbol found in class scope '" << cls->identifier << "'.\n")
-      return v;
-    }
   }
 
   /* Delegate to parent scope if not found locally. */
@@ -369,20 +352,17 @@ T *SymbolScope::lookup_generic_nested(const SymbolTable &table,
 
 SymbolClass *SymbolScope::lookup_class(string id) const
 {
-  auto it = classes.find(id);
-  return it != classes.end() ? it->second.second : nullptr;
+  return classes.find(id)->second.second;
 }
 
 SymbolFunction *SymbolScope::lookup_function(string id) const
 {
-  auto it = functions.find(id);
-  return it != functions.end() ? it->second.second : nullptr;
+  return functions.find(id)->second.second;
 }
 
 SymbolVariable *SymbolScope::lookup_variable(string id) const
 {
-  auto it = variables.find(id);
-  return it != variables.end() ? it->second.second : nullptr;
+  return variables.find(id)->second.second;
 }
 
 SymbolClass *SymbolScope::as_class()
@@ -420,26 +400,18 @@ bool SymbolScope::function_emplace(SymbolFunction *fn, bool builtin)
 {
   bool result = false;
   if (auto it = functions.emplace(fn); !it.second) {
-    /* If the function is a builtin and the new overload by not a builtin, we have to discard
-     * all builtin overloads of this function. This is to emulate the GLSL and MSL overload
-     * behavior. */
-    if (it.first->is_builtin && !builtin) {
-      functions.erase(functions.find(fn->identifier));
-      functions.emplace(fn);
+    /* If function already exists, insert overload in the linked list. */
+    it.first->add_overload(fn);
+    if (!builtin) {
+      /* Add suffix to the function identifier to reduce chance of hitting an overload at runtime.
+       * This way, the dead code eliminator can discard more functions.
+       * This suffix needs to be the same whatever the file include order is, as it can differ from
+       * shader to shader. We use the line index for that. It is short enough to not clutter the
+       * resulting source file. */
+      /* TODO(fclem): This is left out for compatibility with previous BSL versions. */
+      // fn->identifier += to_string(fn->loc.tok.line_number());
     }
-    else {
-      it.first->add_overload(fn);
-      if (!builtin) {
-        /* Add suffix to the function identifier to reduce chance of hitting an overload at
-         * runtime. This way, the dead code eliminator can discard more functions. This suffix
-         * needs to be the same whatever the file include order is, as it can differ from shader to
-         * shader. We use the line index for that. It is short enough to not clutter the resulting
-         * source file. */
-        /* TODO(fclem): This is left out for compatibility with previous BSL versions. */
-        // fn->identifier += to_string(fn->loc.tok.line_number());
-      }
-      result = true;
-    }
+    result = true;
   }
   /* Builtins functions aren't parsed and don't need access to the scope.
    * Avoid bloating global namespace. */

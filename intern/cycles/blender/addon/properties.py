@@ -152,7 +152,7 @@ enum_volume_sampling = (
      "Use equiangular sampling, best for volumes with low density with light inside or near the volume"),
     ('MULTIPLE_IMPORTANCE',
      "Multiple Importance",
-     "Combine distance and equiangular sampling for volumes where neither method is ideal"),
+     "Combine distance and equi-angular sampling for volumes where neither method is ideal"),
 )
 
 enum_volume_interpolation = (
@@ -1634,12 +1634,6 @@ class CyclesRenderLayerSettings(bpy.types.PropertyGroup):
         default=False,
         update=update_render_passes,
     )
-    denoising_store_motion_passes: BoolProperty(
-        name="Store Denoising Motion Passes",
-        description="Store the denoising motion passes, for temporal denoisers",
-        default=False,
-        update=update_render_passes,
-    )
     denoising_pass_follow_reflections: BoolProperty(
         name="Denoising Pass Reflections",
         description="Follow reflections for the denoising feature passes",
@@ -1772,30 +1766,31 @@ class CyclesPreferences(bpy.types.AddonPreferences):
 
     def find_existing_device_entry(self, device):
         for device_entry in self.devices:
-            if device_entry.id == device.id and device_entry.type == device.type:
+            if device_entry.id == device[2] and device_entry.type == device[1]:
                 return device_entry
         return None
 
     def update_device_entries(self, device_list):
         for device in device_list:
-            if device.type not in {'CUDA', 'OPTIX', 'CPU', 'HIP', 'METAL', 'ONEAPI'}:
+            if not device[1] in {'CUDA', 'OPTIX', 'CPU', 'HIP', 'METAL', 'ONEAPI'}:
                 continue
             # Try to find existing Device entry
             entry = self.find_existing_device_entry(device)
             if not entry:
                 # Create new entry if no existing one was found
                 entry = self.devices.add()
-                entry.id = device.id
-                entry.name = device.name
-                entry.type = device.type
+                entry.id = device[2]
+                entry.name = device[0]
+                entry.type = device[1]
                 entry.use = entry.type != 'CPU'
-            elif entry.name != device.name:
+            elif entry.name != device[0]:
                 # Update name in case it changed
-                entry.name = device.name
+                entry.name = device[0]
 
     # Gets all devices types to display in the preferences for a compute device type.
     # This includes the CPU device.
     def get_devices_for_type(self, compute_device_type, device_list=None):
+        # Layout of the device tuples: (Name, Type, Persistent ID)
         if device_list is None:
             device_list = self.get_device_list(compute_device_type)
 
@@ -1804,8 +1799,8 @@ class CyclesPreferences(bpy.types.AddonPreferences):
         cpu_devices = []
         for device in device_list:
             entry = self.find_existing_device_entry(device)
-            entry.is_optimized = device.has_execution_optimization
-            entry.meets_driver_requirement = device.meets_driver_requirement
+            entry.is_optimized = device[7]
+            entry.meets_driver_requirement = device[8]
             if entry.type == compute_device_type:
                 devices.append(entry)
             elif entry.type == 'CPU':
@@ -1842,15 +1837,15 @@ class CyclesPreferences(bpy.types.AddonPreferences):
         num = 0
         if compute_device_type != 'NONE':
             for device in self.get_device_list(compute_device_type):
-                if device.type != compute_device_type:
+                if device[1] != compute_device_type:
                     continue
 
                 # Skip devices that do not meet the driver requirement.
-                if not device.meets_driver_requirement:
+                if not device[8]:
                     continue
 
                 for dev in self.devices:
-                    if dev.use and dev.id == device.id:
+                    if dev.use and dev.id == device[2]:
                         num += 1
         return num
 
@@ -1858,15 +1853,15 @@ class CyclesPreferences(bpy.types.AddonPreferences):
         compute_device_type = self.get_compute_device_type()
         if compute_device_type != 'NONE':
             for device in self.get_device_list(compute_device_type):
-                if device.type == compute_device_type:
+                if device[1] == compute_device_type:
                     continue
 
                 # Skip devices that do not meet the driver requirement.
-                if not device.meets_driver_requirement:
+                if not device[8]:
                     continue
 
                 for dev in self.devices:
-                    if dev.use and dev.id == device.id:
+                    if dev.use and dev.id == device[2]:
                         return True
 
         return False
@@ -1880,15 +1875,15 @@ class CyclesPreferences(bpy.types.AddonPreferences):
         # We need non-CPU devices, used for rendering and supporting OIDN GPU denoising
         if compute_device_type != 'NONE':
             for device in self.get_device_list(compute_device_type):
-                device_type = device.type
+                device_type = device[1]
                 if device_type == 'CPU':
                     continue
 
                 # Skip devices that do not meet the driver requirement.
-                if not device.meets_driver_requirement:
+                if not device[8]:
                     continue
 
-                has_device_oidn_support = device.has_openimagedenoise
+                has_device_oidn_support = device[5]
                 if has_device_oidn_support and self.find_existing_device_entry(device).use:
                     return True
 
@@ -1900,15 +1895,16 @@ class CyclesPreferences(bpy.types.AddonPreferences):
         # We need non-CPU devices, used for rendering and supporting DLSS
         if compute_device_type != 'NONE':
             for device in self.get_device_list(compute_device_type):
-                device_type = device.type
+                device_type = device[1]
                 if device_type == 'CPU':
                     continue
 
                 # Skip devices that do not meet the driver requirement.
-                if not device.meets_driver_requirement:
+                if not device[8]:
                     continue
 
-                has_device_dlss_support = device.has_dlss
+                # Allow DLSS support if reported by C++ or if device is an RTX GPU (hardware raytracing) on driver 580+
+                has_device_dlss_support = device[9] or (device[4] and device_type in {'CUDA', 'OPTIX'})
                 if has_device_dlss_support and self.find_existing_device_entry(device).use:
                     return True
 
@@ -1920,15 +1916,15 @@ class CyclesPreferences(bpy.types.AddonPreferences):
         if compute_device_type == 'OPTIX':
             # We need any OptiX devices, used for rendering
             for device in self.get_device_list(compute_device_type):
-                device_type = device.type
+                device_type = device[1]
                 if device_type == 'CPU':
                     continue
 
                 # Skip devices that do not meet the driver requirement.
-                if not device.meets_driver_requirement:
+                if not device[8]:
                     continue
 
-                has_device_optixdenoiser_support = device.has_optix_denoiser
+                has_device_optixdenoiser_support = device[6]
                 if has_device_optixdenoiser_support and self.find_existing_device_entry(device).use:
                     return True
 
@@ -1954,8 +1950,7 @@ class CyclesPreferences(bpy.types.AddonPreferences):
                 found_device = True
                 break
 
-        optix_minimum_driver_version = "580"
-        cuda_minimum_driver_version = "580"
+        optix_minimum_driver_version = "575"
         hip_minimum_adrenalin_driver_version = "24.9.1"
         hip_minimum_pro_driver_version = "24.Q4"
         hip_minimum_linux_driver_version = "24.30"
@@ -1970,8 +1965,6 @@ class CyclesPreferences(bpy.types.AddonPreferences):
             if device_type == 'CUDA':
                 compute_capability = "5.0"
                 col.label(text=rpt_("Requires NVIDIA GPU with compute capability %s") % compute_capability,
-                          icon='BLANK1', translate=False)
-                col.label(text=rpt_("and NVIDIA driver version %s or newer") % cuda_minimum_driver_version,
                           icon='BLANK1', translate=False)
             elif device_type == 'OPTIX':
                 compute_capability = "5.0"
@@ -2056,9 +2049,7 @@ class CyclesPreferences(bpy.types.AddonPreferences):
                 row.prop(device, "use", text=name, translate=False)
 
                 details = ""
-                if device.type == 'CUDA':
-                    details = rpt_("Requires NVIDIA driver version %s or newer") % cuda_minimum_driver_version
-                elif device.type == 'OPTIX':
+                if device.type == 'OPTIX':
                     details = rpt_("Requires NVIDIA driver version %s or newer") % optix_minimum_driver_version
                 elif device.type == 'HIP':
                     if sys.platform[:3] == "win":
@@ -2113,18 +2104,22 @@ class CyclesPreferences(bpy.types.AddonPreferences):
         for device in devices:
             if not self.find_existing_device_entry(device).use:
                 continue
-            if device.type != compute_device_type:
+            if device[1] != compute_device_type:
                 continue
 
-            if not device.meets_driver_requirement:
+            # device[8] == DeviceInfo.meets_driver_requirement
+            # For more details see available_devices_func function in python.cpp
+            if not device[8]:
                 # Devices that do not meet the driver requirement are not used;
                 # skip them.
                 continue
 
-            if device.has_peer_memory:
+            # device[3] == DeviceInfo.has_peer_memory
+            if device[3]:
                 has_peer_memory = True
 
-            if device.use_hardware_raytracing:
+            # device[4] == DeviceInfo.use_hardware_raytracing
+            if device[4]:
                 has_enabled_hardware_rt = True
             else:
                 has_disabled_hardware_rt = True

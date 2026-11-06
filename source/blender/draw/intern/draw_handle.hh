@@ -408,13 +408,18 @@ class ObjectRef {
       return false;
     }
 
+    if (object->base_flag & BASE_FROM_DUPLI) {
+      /* TODO: Is this code reachable? */
+      return false;
+    }
+
     if (dupli_parent_->runtime->sculpt_session &&
         (dupli_parent_->runtime->sculpt_session->mode_type == OB_MODE_SCULPT))
     {
       return true;
     }
 
-    if (ob_mode & (OB_MODE_ALL_PAINT_MESH | OB_MODE_ALL_PAINT_GPENCIL)) {
+    if (ob_mode & (OB_MODE_ALL_PAINT | OB_MODE_ALL_PAINT_GPENCIL)) {
       return true;
     }
 

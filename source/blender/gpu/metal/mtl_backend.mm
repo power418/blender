@@ -401,6 +401,21 @@ bool MTLBackend::metal_is_supported()
 {
   /* Device compatibility information using Metal Feature-set tables.
    * See: https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf */
+
+  NSOperatingSystemVersion version = [[NSProcessInfo processInfo] operatingSystemVersion];
+
+  /* Metal Viewport requires macOS Version 10.15 onward. */
+  bool supported_os_version = version.majorVersion >= 11 ||
+                              (version.majorVersion == 10 ? version.minorVersion >= 15 : false);
+  if (!supported_os_version) {
+    CLOG_WARN(&LOG,
+              "OS Version too low to run minimum required metal version. Required at least 10.15, "
+              "got %ld.%ld",
+              (long)version.majorVersion,
+              (long)version.minorVersion);
+    return false;
+  }
+
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
 
   /* #163272: MTLCreateSystemDefaultDevice() may return nil in sandboxed or non-GUI contexts. */
@@ -430,7 +445,7 @@ bool MTLBackend::metal_is_supported()
                                supports_barycentric_whitelist(device);
   bool supported_metal_version = [device supportsFamily:MTLGPUFamilyMac2];
 
-  bool result = supports_argument_buffers_tier2 && supports_barycentrics &&
+  bool result = supports_argument_buffers_tier2 && supports_barycentrics && supported_os_version &&
                 supported_metal_version;
 
   if (!supports_argument_buffers_tier2) {
@@ -544,7 +559,6 @@ void MTLBackend::capabilities_init(MTLContext *ctx)
   /* Feature support */
   GCaps.mem_stats_support = false;
   GCaps.hdr_viewport_support = true;
-  GCaps.multi_viewport_support = true;
 
   GCaps.geometry_shader_support = false;
 

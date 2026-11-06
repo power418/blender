@@ -7,12 +7,9 @@
 #include "gpu_shader_common_hash.bsl.hh"
 #include "gpu_shader_math_vector_safe.bsl.hh"
 
-[[force_inline]] void floor_frac(float x, int &x_int, float &x_fract)
-{
-  float x_floor = floor(x);
-  x_int = int(x_floor);
-  x_fract = x - x_floor;
-}
+/* clang-format off */
+#define FLOORFRAC(x, x_int, x_fract) { float x_floor = floor(x); x_int = int(x_floor); x_fract = x - x_floor; }
+/* clang-format on */
 
 /* Bilinear Interpolation:
  *
@@ -141,7 +138,7 @@ float noise_perlin(float x)
   int X;
   float fx;
 
-  floor_frac(x, X, fx);
+  FLOORFRAC(x, X, fx);
 
   float u = fade(fx);
 
@@ -155,8 +152,8 @@ float noise_perlin(float2 vec)
   int X, Y;
   float fx, fy;
 
-  floor_frac(vec.x, X, fx);
-  floor_frac(vec.y, Y, fy);
+  FLOORFRAC(vec.x, X, fx);
+  FLOORFRAC(vec.y, Y, fy);
 
   float u = fade(fx);
   float v = fade(fy);
@@ -176,9 +173,9 @@ float noise_perlin(float3 vec)
   int X, Y, Z;
   float fx, fy, fz;
 
-  floor_frac(vec.x, X, fx);
-  floor_frac(vec.y, Y, fy);
-  floor_frac(vec.z, Z, fz);
+  FLOORFRAC(vec.x, X, fx);
+  FLOORFRAC(vec.y, Y, fy);
+  FLOORFRAC(vec.z, Z, fz);
 
   float u = fade(fx);
   float v = fade(fy);
@@ -204,10 +201,10 @@ float noise_perlin(float4 vec)
   int X, Y, Z, W;
   float fx, fy, fz, fw;
 
-  floor_frac(vec.x, X, fx);
-  floor_frac(vec.y, Y, fy);
-  floor_frac(vec.z, Z, fz);
-  floor_frac(vec.w, W, fw);
+  FLOORFRAC(vec.x, X, fx);
+  FLOORFRAC(vec.y, Y, fy);
+  FLOORFRAC(vec.z, Z, fz);
+  FLOORFRAC(vec.w, W, fw);
 
   float u = fade(fx);
   float v = fade(fy);

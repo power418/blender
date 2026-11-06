@@ -8,8 +8,6 @@
 
 #include <cfloat>
 
-#include "BLI_generic_array.hh"
-#include "BLI_implicit_sharing_ptr.hh"
 #include "BLI_listbase.hh"
 #include "BLI_math_euler.hh"
 #include "BLI_string.hh"
@@ -365,7 +363,7 @@ struct OutputAttributeToStore {
   bke::GeometryComponent::Type component_type;
   bke::AttrDomain domain;
   std::string name;
-  GArray<> data;
+  GMutableSpan data;
 };
 
 /**
@@ -439,13 +437,17 @@ static Vector<OutputAttributeToStore> compute_attributes_to_store(
         const CPPType &type = output_info.field.cpp_type();
         const bke::AttributeValidator validator = attributes.lookup_validator(output_info.name);
 
-        OutputAttributeToStore store{component_type,
-                                     domain,
-                                     output_info.name,
-                                     GArray<>(type, domain_size, NoInitialization())};
+        OutputAttributeToStore store{
+            component_type,
+            domain,
+            output_info.name,
+            GMutableSpan{
+                type,
+                MEM_new_uninitialized_aligned(type.size * domain_size, type.alignment, __func__),
+                domain_size}};
         fn::GField field = validator.validate_field_if_necessary(output_info.field);
-        field_evaluator.add_with_destination(std::move(field), store.data.as_mutable_span());
-        attributes_to_store.append(std::move(store));
+        field_evaluator.add_with_destination(std::move(field), store.data);
+        attributes_to_store.append(store);
       }
       field_evaluator.evaluate();
     }
@@ -470,9 +472,9 @@ static void remove_anonymous_attributes(bke::GeometrySet &geometry)
 }
 
 static void store_computed_output_attributes(
-    bke::GeometrySet &geometry, const MutableSpan<OutputAttributeToStore> attributes_to_store)
+    bke::GeometrySet &geometry, const Span<OutputAttributeToStore> attributes_to_store)
 {
-  for (OutputAttributeToStore &store : attributes_to_store) {
+  for (const OutputAttributeToStore &store : attributes_to_store) {
     bke::GeometryComponent &component = geometry.get_component_for_write(store.component_type);
     bke::MutableAttributeAccessor attributes = *component.attributes_for_write();
 
@@ -490,13 +492,10 @@ static void store_computed_output_attributes(
 
     /* Try to create the attribute reusing the stored buffer. This will only succeed if the
      * attribute didn't exist before, or if it existed but was removed above. */
-    const ImplicitSharingPtr sharing_info(
-        new ImplicitSharedValue<GArray<>>(std::move(store.data)));
-    const GArray<> &data = sharing_info->data;
     if (attributes.add(store.name,
                        store.domain,
-                       bke::cpp_type_to_attribute_type(data.type()),
-                       bke::AttributeInitShared(data.data(), *sharing_info)))
+                       bke::cpp_type_to_attribute_type(store.data.type()),
+                       bke::AttributeInitMoveArray(store.data.data())))
     {
       continue;
     }
@@ -504,9 +503,13 @@ static void store_computed_output_attributes(
     bke::GAttributeWriter attribute = attributes.lookup_or_add_for_write(
         store.name, store.domain, data_type);
     if (attribute) {
-      attribute.varray.set_all(data.data());
+      attribute.varray.set_all(store.data.data());
       attribute.finish();
     }
+
+    /* We were unable to reuse the data, so it must be destructed and freed. */
+    store.data.type().destruct_n(store.data.data(), store.data.size());
+    MEM_delete_void(store.data.data());
   }
 }
 

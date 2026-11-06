@@ -62,34 +62,6 @@ BMEditMesh *BKE_editmesh_from_object(Object *ob)
   return (id_cast<Mesh *>(ob->data))->runtime->edit_mesh.get();
 }
 
-const BMesh *BKE_editmesh_bmesh_get(const Object *ob)
-{
-  const Mesh *mesh = id_cast<const Mesh *>(ob->data);
-  return BKE_editmesh_bmesh_get(mesh);
-}
-
-const BMesh *BKE_editmesh_bmesh_get(const Mesh *mesh)
-{
-  if (!mesh->runtime->edit_mesh) {
-    return nullptr;
-  }
-  return mesh->runtime->edit_mesh->bm;
-}
-
-BMesh *BKE_editmesh_bmesh_get_for_write(Mesh *mesh)
-{
-  if (!mesh->runtime->edit_mesh) {
-    return nullptr;
-  }
-  return mesh->runtime->edit_mesh->bm;
-}
-
-BMesh *BKE_editmesh_bmesh_get_for_write(Object *ob)
-{
-  Mesh *mesh = id_cast<Mesh *>(ob->data);
-  return BKE_editmesh_bmesh_get_for_write(mesh);
-}
-
 bool BKE_editmesh_eval_orig_map_available(const Mesh &mesh_eval, const Mesh *mesh_orig)
 {
   if (!mesh_orig) {
@@ -104,67 +76,63 @@ bool BKE_editmesh_eval_orig_map_available(const Mesh &mesh_eval, const Mesh *mes
   return false;
 }
 
-void BKE_editmesh_looptris_calc_ex(BMEditMesh *em,
-                                   BMesh *bm,
-                                   const BMeshCalcTessellation_Params *params)
+void BKE_editmesh_looptris_calc_ex(BMEditMesh *em, const BMeshCalcTessellation_Params *params)
 {
+  BMesh *bm = em->bm;
   em->looptris.reinitialize(poly_to_tri_count(bm->totface, bm->totloop));
-  BM_mesh_calc_tessellation_ex(bm, em->looptris, params);
+  BM_mesh_calc_tessellation_ex(em->bm, em->looptris, params);
 }
 
-void BKE_editmesh_looptris_calc(BMEditMesh *em, BMesh *bm)
+void BKE_editmesh_looptris_calc(BMEditMesh *em)
 {
   BMeshCalcTessellation_Params params{};
   params.face_normals = false;
-  BKE_editmesh_looptris_calc_ex(em, bm, &params);
+  BKE_editmesh_looptris_calc_ex(em, &params);
 }
 
-void BKE_editmesh_looptris_and_normals_calc(BMEditMesh *em, BMesh *bm)
+void BKE_editmesh_looptris_and_normals_calc(BMEditMesh *em)
 {
   BMeshCalcTessellation_Params looptris_params{};
   looptris_params.face_normals = true;
-  BKE_editmesh_looptris_calc_ex(em, bm, &looptris_params);
+  BKE_editmesh_looptris_calc_ex(em, &looptris_params);
   BMeshNormalsUpdate_Params normals_params{};
   normals_params.face_normals = false;
-  BM_mesh_normals_update_ex(bm, &normals_params);
+  BM_mesh_normals_update_ex(em->bm, &normals_params);
 }
 
 void BKE_editmesh_looptris_calc_with_partial_ex(BMEditMesh *em,
-                                                BMesh *bm,
                                                 BMPartialUpdate *bmpinfo,
                                                 const BMeshCalcTessellation_Params *params)
 {
-  BLI_assert(em->looptris.size() == poly_to_tri_count(bm->totface, bm->totloop));
-  BLI_assert(!(bm->totface && em->looptris.is_empty()));
+  BLI_assert(em->looptris.size() == poly_to_tri_count(em->bm->totface, em->bm->totloop));
+  BLI_assert(!(em->bm->totface && em->looptris.is_empty()));
 
-  BM_mesh_calc_tessellation_with_partial_ex(bm, em->looptris, bmpinfo, params);
+  BM_mesh_calc_tessellation_with_partial_ex(em->bm, em->looptris, bmpinfo, params);
 }
 
-void BKE_editmesh_looptris_calc_with_partial(BMEditMesh *em, BMesh *bm, BMPartialUpdate *bmpinfo)
+void BKE_editmesh_looptris_calc_with_partial(BMEditMesh *em, BMPartialUpdate *bmpinfo)
 {
   BMeshCalcTessellation_Params looptris_params{};
   looptris_params.face_normals = false;
-  BKE_editmesh_looptris_calc_with_partial_ex(em, bm, bmpinfo, &looptris_params);
+  BKE_editmesh_looptris_calc_with_partial_ex(em, bmpinfo, &looptris_params);
 }
 
-void BKE_editmesh_looptris_and_normals_calc_with_partial(BMEditMesh *em,
-                                                         BMesh *bm,
-                                                         BMPartialUpdate *bmpinfo)
+void BKE_editmesh_looptris_and_normals_calc_with_partial(BMEditMesh *em, BMPartialUpdate *bmpinfo)
 {
   BMeshCalcTessellation_Params looptris_params{};
   looptris_params.face_normals = true;
-  BKE_editmesh_looptris_calc_with_partial_ex(em, bm, bmpinfo, &looptris_params);
+  BKE_editmesh_looptris_calc_with_partial_ex(em, bmpinfo, &looptris_params);
   BMeshNormalsUpdate_Params normals_params{};
   normals_params.face_normals = false;
-  BM_mesh_normals_update_with_partial_ex(bm, bmpinfo, &normals_params);
+  BM_mesh_normals_update_with_partial_ex(em->bm, bmpinfo, &normals_params);
 }
 
 void BKE_editmesh_free_data(BMEditMesh *em)
 {
   em->looptris = {};
 
-  if (BMesh *bm = em->bm) {
-    BM_mesh_free(bm);
+  if (em->bm) {
+    BM_mesh_free(em->bm);
   }
 }
 
@@ -188,19 +156,19 @@ static void cage_mapped_verts_callback(void *user_data,
 }
 
 Array<float3> BKE_editmesh_vert_coords_alloc(Depsgraph *depsgraph,
-                                             const BMesh *bm,
+                                             BMEditMesh *em,
                                              Scene *scene,
                                              Object *ob)
 {
-  const Mesh *cage = bke::editbmesh_get_eval_cage(depsgraph, scene, ob, &CD_MASK_BAREMESH);
-  Array<float3> positions_cage(bm->totvert);
+  const Mesh *cage = bke::editbmesh_get_eval_cage(depsgraph, scene, ob, em, &CD_MASK_BAREMESH);
+  Array<float3> positions_cage(em->bm->totvert);
 
   /* When initializing cage verts, we only want the first cage coordinate for each vertex,
    * so that e.g. mirror or array use original vertex coordinates and not mirrored or duplicate. */
-  BLI_bitmap *visit_bitmap = BLI_BITMAP_NEW(bm->totvert, __func__);
+  BLI_bitmap *visit_bitmap = BLI_BITMAP_NEW(em->bm->totvert, __func__);
 
   CageUserData data;
-  data.totvert = bm->totvert;
+  data.totvert = em->bm->totvert;
   data.positions_cage = positions_cage;
   data.visit_bitmap = visit_bitmap;
 
@@ -211,20 +179,17 @@ Array<float3> BKE_editmesh_vert_coords_alloc(Depsgraph *depsgraph,
   return positions_cage;
 }
 
-Span<float3> BKE_editmesh_vert_coords_when_deformed(Depsgraph *depsgraph,
-                                                    Scene *scene,
-                                                    Object *ob,
-                                                    Array<float3> &r_alloc)
+Span<float3> BKE_editmesh_vert_coords_when_deformed(
+    Depsgraph *depsgraph, BMEditMesh *em, Scene *scene, Object *ob, Array<float3> &r_alloc)
 {
-  Object *object_orig = DEG_get_original(ob);
+
   const Object *object_eval = DEG_get_evaluated(depsgraph, ob);
   const Mesh *editmesh_eval_final = BKE_object_get_editmesh_eval_final(object_eval);
   const Mesh *mesh_cage = BKE_object_get_editmesh_eval_cage(ob);
-  const BMesh *bm = BKE_editmesh_bmesh_get(object_orig);
 
   Span<float3> vert_positions;
   if (mesh_cage && mesh_cage->runtime->deformed_only) {
-    BLI_assert(BKE_mesh_wrapper_vert_len(mesh_cage) == bm->totvert);
+    BLI_assert(BKE_mesh_wrapper_vert_len(mesh_cage) == em->bm->totvert);
     /* Deformed, and we have deformed coords already. */
     vert_positions = BKE_mesh_wrapper_vert_coords(mesh_cage);
   }
@@ -239,20 +204,20 @@ Span<float3> BKE_editmesh_vert_coords_when_deformed(Depsgraph *depsgraph,
   }
   else {
     /* Constructive modifiers have been used, we need to allocate coordinates. */
-    r_alloc = BKE_editmesh_vert_coords_alloc(depsgraph, bm, scene, ob);
+    r_alloc = BKE_editmesh_vert_coords_alloc(depsgraph, em, scene, ob);
     return r_alloc.as_span();
   }
   return vert_positions;
 }
 
-Array<float3> BKE_editmesh_vert_coords_alloc_orco(const BMesh *bm)
+Array<float3> BKE_editmesh_vert_coords_alloc_orco(BMEditMesh *em)
 {
-  return BM_mesh_vert_coords_alloc(bm);
+  return BM_mesh_vert_coords_alloc(em->bm);
 }
 
-void BKE_editmesh_lnorspace_update(BMesh *bm)
+void BKE_editmesh_lnorspace_update(BMEditMesh *em)
 {
-  BM_lnorspace_update(bm);
+  BM_lnorspace_update(em->bm);
 }
 
 }  // namespace blender

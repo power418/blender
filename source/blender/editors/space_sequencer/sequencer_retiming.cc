@@ -617,6 +617,11 @@ static void strip_speed_set(Scene *scene, Strip *strip, const float speed)
 
   /* TODO: it would be nice to multiply speed with complex retiming by a factor. */
   seq::retiming_key_speed_set(scene, strip, right_key, speed / 100.0f);
+
+  ListBaseT<Strip> *seqbase = seq::active_seqbase_get(seq::editing_get(scene));
+  if (seq::transform_test_overlap(scene, seqbase, strip)) {
+    seq::transform_seqbase_shuffle(seqbase, strip, scene);
+  }
 }
 
 static void segment_speed_set(Scene *scene,
@@ -625,16 +630,15 @@ static void segment_speed_set(Scene *scene,
 {
   ListBaseT<Strip> *seqbase = seq::active_seqbase_get(seq::editing_get(scene));
 
-  VectorSet<Strip *> retimed_strips;
   for (auto item : selection.items()) {
     seq::relations_invalidate_cache_raw(scene, item.value);
 
     seq::retiming_key_speed_set(scene, item.value, item.key, speed / 100.0f);
 
-    retimed_strips.add(item.value);
+    if (seq::transform_test_overlap(scene, seqbase, item.value)) {
+      seq::transform_seqbase_shuffle(seqbase, item.value, scene);
+    }
   }
-
-  seq::transform_handle_overlap(scene, seqbase, retimed_strips, false);
 }
 
 static wmOperatorStatus sequencer_retiming_segment_speed_set_exec(bContext *C, wmOperator *op)
@@ -649,8 +653,6 @@ static wmOperatorStatus sequencer_retiming_segment_speed_set_exec(bContext *C, w
     for (Strip *strip : strips) {
       strip_speed_set(scene, strip, speed);
     }
-    ListBaseT<Strip> *seqbase = seq::active_seqbase_get(seq::editing_get(scene));
-    seq::transform_handle_overlap(scene, seqbase, strips, false);
     WM_event_add_notifier(C, NC_SCENE | ND_SEQUENCER, scene);
     return OPERATOR_FINISHED;
   }

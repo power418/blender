@@ -23,7 +23,6 @@
 #include "BKE_context.hh"
 #include "BKE_global.hh"
 #include "BKE_idprop.hh"
-#include "BKE_preferences.h"
 #include "BKE_report.hh"
 
 #ifdef WITH_PYTHON
@@ -52,18 +51,6 @@
 #include "remote_library.hh"
 
 static CLG_LogRef LOG = {"asset.remote_library"};
-
-/**
- * An extension repository may define itself as the origin of an asset-libraries token.
- * In this case, always use the token from the extensions repository.
- *
- * \note `_remote_asset_library_sync_all_periodic` in `bl_pkg/__init__.py`
- * does the same for the startup sync, which doesn't run this script.
- */
-#define AUTH_TOKEN_MAYBE_OVERRIDE_FROM_EXTENSIONS \
-  "from _bpy_internal.extensions.asset_library_query import token_from_asset_url\n" \
-  "if (auth_token_override := token_from_asset_url(library_url)) is not None:\n" \
-  "    auth_token = auth_token_override\n"
 
 namespace blender::asset_system {
 
@@ -132,7 +119,6 @@ PreferencesRemoteAssetLibrary::PreferencesRemoteAssetLibrary(
                          /*root_path=*/custom_library.dirpath),
       user_library_(custom_library)
 {
-  may_override_import_method_ = true;
   BLI_assert(custom_library.flag & ASSET_LIBRARY_USE_REMOTE_URL);
 }
 
@@ -157,11 +143,6 @@ std::optional<AssetLibraryReference> PreferencesRemoteAssetLibrary::library_refe
   return library_ref;
 }
 
-const bUserAssetLibrary *PreferencesRemoteAssetLibrary::user_asset_library() const
-{
-  return user_library_.user_asset_library();
-}
-
 bool PreferencesRemoteAssetLibrary::is_enabled() const
 {
   const bUserAssetLibrary *library_definition = user_library_.user_asset_library();
@@ -169,7 +150,7 @@ bool PreferencesRemoteAssetLibrary::is_enabled() const
     return false;
   }
 
-  return BKE_preferences_asset_library_is_available(&U, library_definition);
+  return (library_definition->flag & ASSET_LIBRARY_DISABLED) == 0;
 }
 
 std::optional<StringRefNull> PreferencesRemoteAssetLibrary::auth_token() const
@@ -190,24 +171,6 @@ std::optional<StringRefNull> PreferencesRemoteAssetLibrary::auth_token() const
 
   BLI_assert(library_definition->flag & ASSET_LIBRARY_USE_AUTH_TOKEN);
   return token;
-}
-
-std::optional<eAssetImportMethod> PreferencesRemoteAssetLibrary::import_method() const
-{
-  const bUserAssetLibrary *library_definition = user_library_.user_asset_library();
-  if (!library_definition) {
-    return {};
-  }
-  if (!ELEM(library_definition->import_method,
-            ASSET_IMPORT_APPEND,
-            ASSET_IMPORT_APPEND_REUSE,
-            ASSET_IMPORT_PACK))
-  {
-    BLI_assert_unreachable();
-    return ASSET_IMPORT_PACK;
-  }
-
-  return eAssetImportMethod(library_definition->import_method);
 }
 
 /** \} */
@@ -692,7 +655,6 @@ void remote_library_request_download(const RemoteLibraryDefinitionRef &library_d
     std::string script =
         "import bl_pkg\n"
         "from pathlib import Path\n"
-        "\n" AUTH_TOKEN_MAYBE_OVERRIDE_FROM_EXTENSIONS
         "\n"
         "bl_pkg.remote_asset_library_sync(\n"
         "    library_url, auth_token, Path(library_path)\n"
@@ -790,7 +752,6 @@ static std::optional<std::string> remote_library_request_asset_download_file(
   std::string script =
       "import _bpy_internal.assets.remote_library.asset_downloader as asset_dl\n"
       "from pathlib import Path\n"
-      "\n" AUTH_TOKEN_MAYBE_OVERRIDE_FROM_EXTENSIONS
       "\n"
       "_result = asset_dl.download_asset_file(\n"
       "    library_url, auth_token, Path(library_path),\n"
@@ -937,16 +898,16 @@ void remote_library_request_preview_download(const bContext &C,
     std::string script =
         "import _bpy_internal.assets.remote_library.asset_downloader as asset_dl\n"
         "from pathlib import Path\n"
-        "\n" AUTH_TOKEN_MAYBE_OVERRIDE_FROM_EXTENSIONS
         "\n"
         "asset_dl.download_preview(\n"
-        "    library_url, auth_token, Path(library_path),\n"
+        "    library_url, library_auth_token, Path(library_path),\n"
         "    preview_url, preview_hash, Path(dst_filepath),\n"
         ")\n";
 
     std::unique_ptr locals = bke::idprop::create_group("locals");
     IDP_AddToGroup(locals.get(), IDP_NewString(*library_url, "library_url"));
-    IDP_AddToGroup(locals.get(), IDP_NewString(library.auth_token().value_or(""), "auth_token"));
+    IDP_AddToGroup(locals.get(),
+                   IDP_NewString(library.auth_token().value_or(""), "library_auth_token"));
     IDP_AddToGroup(locals.get(), IDP_NewString(library.root_path(), "library_path"));
     IDP_AddToGroup(locals.get(), IDP_NewString(*preview_url, "preview_url"));
     IDP_AddToGroup(locals.get(), IDP_NewString(*preview_hash, "preview_hash"));

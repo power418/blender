@@ -262,14 +262,6 @@ static void collection_foreach_id(ID *id, LibraryForeachIDData *data)
     BKE_LIB_FOREACHID_PROCESS_IDSUPER(
         data, parent.collection, IDWALK_CB_NEVER_SELF | IDWALK_CB_LOOPBACK | cb_flag);
   }
-
-  /* Clear the archive library pointer when the library is deleted. */
-  if (collection->importer && collection->importer->runtime) {
-    BKE_LIB_FOREACHID_PROCESS_IDSUPER(data,
-                                      collection->importer->runtime->archive_library,
-                                      IDWALK_CB_NEVER_SELF | IDWALK_CB_READFILE_IGNORE |
-                                          IDWALK_CB_WRITEFILE_IGNORE);
-  }
 }
 
 static ID **collection_owner_pointer_get(ID *id, const bool debug_relationship_assert)
@@ -378,9 +370,6 @@ void BKE_collection_blend_read_data(BlendDataReader *reader, Collection *collect
 
   BLO_read_struct(reader, CollectionImport, &collection->importer);
   if (collection->importer) {
-    collection->importer->runtime = MEM_new<bke::CollectionImportRuntime>(
-        "CollectionImportRuntime");
-
     BLO_read_struct(reader, IDProperty, &collection->importer->import_properties);
     IDP_BlendDataRead(reader, &collection->importer->import_properties);
   }
@@ -422,23 +411,12 @@ static void collection_blend_read_after_liblink(BlendLibReader * /*reader*/, ID 
    * just clear it here. */
   BLI_assert(collection->runtime->gobject_hash == nullptr);
   collection->runtime->tag &= ~COLLECTION_TAG_COLLECTION_OBJECT_DIRTY;
-
-  /* Restore the collection importer's archive library by using the first object's library. */
-  if (collection->importer) {
-    if (!collection->gobject.is_empty()) {
-      const CollectionObject *cob = collection->gobject.first_as<CollectionObject>();
-      Library *lib = cob->ob->id.lib;
-
-      BLI_assert((lib->flag & (LIBRARY_FLAG_IS_ARCHIVE | LIBRARY_FLAG_IS_EXTERNAL)) != 0);
-      collection->importer->runtime->archive_library = lib;
-    }
-  }
 }
 
 IDTypeInfo IDType_ID_GR = {
     .id_code = Collection::id_type,
     .id_filter = FILTER_ID_GR,
-    .dependencies_id_types = FILTER_ID_OB | FILTER_ID_GR | FILTER_ID_LI,
+    .dependencies_id_types = FILTER_ID_OB | FILTER_ID_GR,
     .main_listbase_index = INDEX_ID_GR,
     .struct_size = sizeof(Collection),
     .name = "Collection",
@@ -455,7 +433,6 @@ IDTypeInfo IDType_ID_GR = {
     .foreach_cache = nullptr,
     .foreach_path = nullptr,
     .foreach_working_space_color = nullptr,
-    .foreach_asset_weak_reference = nullptr,
     .owner_pointer_get = collection_owner_pointer_get,
 
     .blend_write = collection_blend_write,
@@ -581,7 +558,8 @@ void BKE_collection_exporter_name_set(const ListBaseT<CollectionExport> *exporte
 {
   /* Only use the new name if it's not empty. */
   if (newname && newname[0] != '\0') {
-    ListBaseT<CollectionExport> list = exporters ? *exporters : BLI_listbase_from_link(data);
+    ListBaseT<CollectionExport> list = exporters ? *exporters :
+                                                   ListBaseT<CollectionExport>{data, data};
 
     STRNCPY(data->name, newname);
     BLI_uniquename(
@@ -594,8 +572,6 @@ void BKE_collection_importer_free_data(CollectionImport *data)
   if (data->import_properties) {
     IDP_FreeProperty(data->import_properties);
   }
-
-  MEM_delete(data->runtime);
 }
 
 void BKE_collection_exporter_free_data(CollectionExport *data)
@@ -1463,44 +1439,6 @@ Collection *BKE_collection_parent_editable_find_recursive(const ViewLayer *view_
   return nullptr;
 }
 
-CollectionObject *BKE_collection_object_find_in(const Collection &collection, const Object &ob)
-{
-  collection_gobject_hash_ensure(const_cast<Collection *>(&collection));
-  return collection.runtime->gobject_hash->lookup_default(&ob, nullptr);
-}
-
-void BKE_collection_object_parented_sort_index_reset(Main &bmain, Object &ob)
-{
-  Collection *collection = nullptr;
-  while ((collection = BKE_collection_object_find(&bmain, nullptr, collection, &ob))) {
-    CollectionObject *cob = BKE_collection_object_find_in(*collection, ob);
-    if (cob != nullptr) {
-      cob->parented_sort_index = -1;
-    }
-  }
-}
-
-void BKE_collection_object_parent_clear_sort_index_reset(Main &bmain, Object &ob)
-{
-  Collection *collection = nullptr;
-  while ((collection = BKE_collection_object_find(&bmain, nullptr, collection, &ob))) {
-    CollectionObject *cob = BKE_collection_object_find_in(*collection, ob);
-    if (cob != nullptr) {
-      cob->parented_sort_index = -1;
-      if (ob.parent != nullptr) {
-        for (Object *parent_iter = ob.parent; parent_iter != nullptr;
-             parent_iter = parent_iter->parent)
-        {
-          if (BKE_collection_object_find_in(*collection, *parent_iter) != nullptr) {
-            cob->sort_index = -1;
-            break;
-          }
-        }
-      }
-    }
-  }
-}
-
 static bool collection_object_add(Main *bmain,
                                   Collection *collection,
                                   Object *ob,
@@ -1621,8 +1559,6 @@ CollectionImport *BKE_collection_importer_add(Collection *collection, const char
   data->import_properties = IDP_New(IDP_GROUP, &val, "import_properties");
   data->flag |= IO_HANDLER_PANEL_OPEN;
 
-  data->runtime = MEM_new<bke::CollectionImportRuntime>("CollectionImportRuntime");
-
   collection->importer = data;
 
   return data;
@@ -1675,8 +1611,7 @@ static void collection_importer_copy(Collection *collection, const CollectionImp
   STRNCPY(new_data->fh_idname, data->fh_idname);
   new_data->import_properties = IDP_CopyProperty(data->import_properties);
   new_data->flag = data->flag;
-  new_data->runtime = MEM_new<bke::CollectionImportRuntime>("CollectionImportRuntime");
-  new_data->runtime->archive_library = data->runtime->archive_library;
+
   collection->importer = new_data;
 }
 

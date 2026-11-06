@@ -60,7 +60,7 @@ bool OptiXDenoiser::denoise_create_if_needed(DenoiseContext &context)
   const bool use_pass_albedo = (context.denoise_params.passes & DENOISER_PASS_ALBEDO) != 0;
   const bool use_pass_normal = (context.denoise_params.passes & DENOISER_PASS_NORMAL) != 0;
   const bool use_pass_motion = context.denoise_params.temporally_stable &&
-                               context.guiding_params.pass_flow != PASS_UNUSED;
+                               (context.denoise_params.passes & DENOISER_PASS_MOTION) != 0;
   const bool use_upscale_model = context.denoise_params.upscale_factor == 2.0f;
 
   const bool recreate_denoiser = (optix_denoiser_ == nullptr) ||
@@ -78,7 +78,11 @@ bool OptiXDenoiser::denoise_create_if_needed(DenoiseContext &context)
   }
 
   /* Create OptiX denoiser handle on demand when it is first used. */
-  OptixDenoiserModelKind model;
+  OptixDenoiserOptions denoiser_options = {};
+  denoiser_options.guideAlbedo = use_pass_albedo;
+  denoiser_options.guideNormal = use_pass_normal;
+
+  OptixDenoiserModelKind model = OPTIX_DENOISER_MODEL_KIND_AOV;
   if (use_pass_motion) {
     if (use_upscale_model) {
       model = OPTIX_DENOISER_MODEL_KIND_TEMPORAL_UPSCALE2X;
@@ -91,15 +95,7 @@ bool OptiXDenoiser::denoise_create_if_needed(DenoiseContext &context)
     if (use_upscale_model) {
       model = OPTIX_DENOISER_MODEL_KIND_UPSCALE2X;
     }
-    else {
-      model = OPTIX_DENOISER_MODEL_KIND_AOV;
-    }
   }
-
-  OptixDenoiserOptions denoiser_options = {};
-  denoiser_options.guideAlbedo = use_pass_albedo;
-  denoiser_options.guideNormal = use_pass_normal;
-  denoiser_options.denoiseAlpha = OPTIX_DENOISER_ALPHA_MODE_COPY;
 
   const OptixResult result = optixDenoiserCreate(
       static_cast<OptiXDevice *>(denoiser_device_)->context,
@@ -191,9 +187,7 @@ bool OptiXDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass
     color_layer.height = context.buffer_params.height;
     color_layer.rowStrideInBytes = pass_stride_in_bytes * context.buffer_params.stride;
     color_layer.pixelStrideInBytes = pass_stride_in_bytes;
-    color_layer.format = pass.num_components > 3 && use_upscale_model_ ?
-                             OPTIX_PIXEL_FORMAT_FLOAT4 :
-                             OPTIX_PIXEL_FORMAT_FLOAT3;
+    color_layer.format = OPTIX_PIXEL_FORMAT_FLOAT3;
   }
 
   /* Previous output. */
@@ -241,9 +235,7 @@ bool OptiXDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass
     flow_layer.format = OPTIX_PIXEL_FORMAT_FLOAT2;
   }
 
-  /* Denoise in-place of the noisy input in the render buffers.
-   * TODO: This is not valid for alpha with OPTIX_DENOISER_MODEL_KIND_UPSCALE2X +
-   * OPTIX_DENOISER_ALPHA_MODE_COPY, since concurrent alpha reads/writes overlap. */
+  /* Denoise in-place of the noisy input in the render buffers. */
   {
     output_layer = color_layer;
     output_layer.width = context.denoised_buffer_params.width;

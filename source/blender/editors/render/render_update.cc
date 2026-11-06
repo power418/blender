@@ -260,7 +260,7 @@ void ED_render_engine_changed(Main *bmain, const bool update_scene_data)
   for (Scene *scene = bmain->scenes.first(); scene; scene = static_cast<Scene *>(scene->id.next)) {
     update_ctx.scene = scene;
     for (ViewLayer &view_layer : scene->view_layers) {
-      /* TODO(sergey): Iterate over depsgraphs instead? */
+      /* TDODO(sergey): Iterate over depsgraphs instead? */
       update_ctx.depsgraph = BKE_scene_ensure_depsgraph(bmain, scene, &view_layer);
       update_ctx.view_layer = &view_layer;
       ED_render_id_flush_update(&update_ctx, &scene->id);
@@ -387,7 +387,6 @@ static void update_sequencer(const DEGEditorUpdateContext *update_ctx, Main *bma
     {
       seq::prefetch_stop(changed_scene);
       seq::cache_cleanup(changed_scene, seq::CacheCleanup::FinalAndIntra);
-      seq::relations_invalidate_generator_strips(changed_scene);
     }
   }
 

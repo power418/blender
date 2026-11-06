@@ -75,7 +75,6 @@
 #include "CLG_log.h"
 
 #include "buttons/interface_label.hh"
-#include "buttons/interface_label_markdown.hh"
 #include "interface_intern.hh"
 
 namespace blender::ui {
@@ -578,14 +577,6 @@ static void block_bounds_calc_popup(
 {
   const int oldbounds = block->bounds;
 
-  /* Place the default button under the cursor. */
-  if (bounds_calc == BLOCK_BOUNDS_POPUP_MOUSE) {
-    if (const Button *but = block_active_default_button_find(block)) {
-      block->bounds_offset[0] = -(but->rect.xmin + 0.8f * BLI_rctf_size_x(&but->rect));
-      block->bounds_offset[1] = -BLI_rctf_cent_y(&but->rect);
-    }
-  }
-
   /* compute mouse position with user defined offset */
   block_bounds_calc(block);
 
@@ -881,8 +872,7 @@ static bool but_equals_old(const Button *but, const Button *oldbut)
   }
 
   if (but->type == ButtonType::Label) {
-    return static_cast<const ButtonLabel *>(but)->label_type ==
-           static_cast<const ButtonLabel *>(oldbut)->label_type;
+    return button_label_is_multiline(but) == button_label_is_multiline(oldbut);
   }
 
   return true;
@@ -987,7 +977,6 @@ static void but_update_old_active_from_new(Button *oldbut, Button *but)
   oldbut->icon = but->icon;
   oldbut->iconadd = but->iconadd;
   oldbut->alignnr = but->alignnr;
-  oldbut->custom_data = but->custom_data;
 
   oldbut->text_direction = but->text_direction;
 
@@ -1015,8 +1004,6 @@ static void but_update_old_active_from_new(Button *oldbut, Button *but)
   but_extra_icons_update_from_old_but(but, oldbut);
   std::swap(but->extra_op_icons, oldbut->extra_op_icons);
 
-  std::swap(but->icon_overlay_text, oldbut->icon_overlay_text);
-
   if (oldbut->type == ButtonType::SearchMenu) {
     ButtonSearch *search_oldbut = static_cast<ButtonSearch *>(oldbut),
                  *search_but = static_cast<ButtonSearch *>(but);
@@ -1027,7 +1014,6 @@ static void but_update_old_active_from_new(Button *oldbut, Button *but)
     auto *label_oldbut = static_cast<ButtonLabel *>(oldbut);
     auto *label_but = static_cast<ButtonLabel *>(but);
     std::swap(label_oldbut->wrap_cache, label_but->wrap_cache);
-    std::swap(label_oldbut->markdown_cache, label_but->markdown_cache);
     std::swap(label_oldbut->max_lines, label_but->max_lines);
   }
 
@@ -1060,12 +1046,6 @@ static void but_update_old_active_from_new(Button *oldbut, Button *but)
       ButtonScrollBar *scroll_oldbut = static_cast<ButtonScrollBar *>(oldbut);
       ButtonScrollBar *scroll_but = static_cast<ButtonScrollBar *>(but);
       scroll_oldbut->visual_height = scroll_but->visual_height;
-      break;
-    }
-    case ButtonType::Image: {
-      ButtonImage *image_oldbut = static_cast<ButtonImage *>(oldbut);
-      ButtonImage *image_but = static_cast<ButtonImage *>(but);
-      std::swap(image_oldbut->key, image_but->key);
       break;
     }
     case ButtonType::ViewItem: {
@@ -2884,7 +2864,7 @@ bool button_supports_cycling(const Button *but)
                ButtonType::ListBox) ||
           (but->type == ButtonType::Menu && button_menu_step_poll(but)) ||
           (but->type == ButtonType::Color &&
-           (static_cast<ButtonColor *>(const_cast<Button *>(but)))->is_palette_color) ||
+           (static_cast<ButtonColor *>(const_cast<Button *>(but)))->is_pallete_color) ||
           (but->menu_step_func != nullptr));
 }
 
@@ -3864,7 +3844,9 @@ static void but_free(const bContext *C, Button *but)
     but->tip_arg_free(but->tip_arg);
   }
 
-  MEM_delete(but->hold_arg);
+  if (but->hold_argN) {
+    MEM_delete_void(but->hold_argN);
+  }
 
   if (but->placeholder) {
     MEM_delete(but->placeholder);
@@ -4503,9 +4485,6 @@ static std::unique_ptr<Button> but_new(const ButtonType type)
     case ButtonType::Scroll:
       but = std::make_unique<ButtonScrollBar>();
       break;
-    case ButtonType::Image:
-      but = std::make_unique<ButtonImage>();
-      break;
     case ButtonType::Menu:
       ATTR_FALLTHROUGH;
     case ButtonType::Block:
@@ -4928,12 +4907,14 @@ static void def_but_rna__menu(bContext *C, Layout *layout, void *but_p)
 
       if (use_enum_copy_description) {
         if (item->description && item->description[0]) {
+          char *description_copy = BLI_strdup(item->description);
           button_func_tooltip_set(
               item_but,
               [](bContext * /*C*/, void *argN, const StringRef /*tip*/) -> std::string {
-                return *static_cast<const std::string *>(argN);
+                return static_cast<const char *>(argN);
               },
-              MEM_new<std::string>(__func__, item->description));
+              description_copy,
+              MEM_delete_void);
         }
       }
     }
@@ -4970,9 +4951,9 @@ void button_rna_menu_convert_to_panel_type(Button *but, const char *panel_type)
   but->funcN = nullptr;
 
   but->menu_create_func = def_but_rna__panel_type;
-  but->func_argN = MEM_new<std::string>(__func__, panel_type);
-  but->func_argN_free_fn = but_func_argN_free<std::string>;
-  but->func_argN_copy_fn = but_func_argN_copy<std::string>;
+  but->func_argN = BLI_strdup(panel_type);
+  but->func_argN_free_fn = MEM_delete_void;
+  but->func_argN_copy_fn = MEM_dupalloc_void;
 }
 
 bool button_menu_draw_as_popover(const Button *but)
@@ -4983,14 +4964,14 @@ bool button_menu_draw_as_popover(const Button *but)
 static void def_but_rna__menu_type(bContext *C, Layout *layout, void *but_p)
 {
   Button *but = static_cast<Button *>(but_p);
-  const std::string &menu_type = *static_cast<const std::string *>(but->func_argN);
+  const char *menu_type = static_cast<const char *>(but->func_argN);
   MenuType *mt = WM_menutype_find(menu_type, true);
   if (mt) {
     item_menutype_func(C, layout, mt);
   }
   else {
     char msg[256];
-    SNPRINTF_UTF8(msg, RPT_("Missing Menu: %s"), menu_type.c_str());
+    SNPRINTF_UTF8(msg, RPT_("Missing Menu: %s"), menu_type);
     layout->label(msg, ICON_NONE);
   }
 }
@@ -5008,9 +4989,9 @@ void button_rna_menu_convert_to_menu_type(Button *but, const char *menu_type)
   but->funcN = nullptr;
 
   but->menu_create_func = def_but_rna__menu_type;
-  but->func_argN_free_fn = but_func_argN_free<std::string>;
-  but->func_argN_copy_fn = but_func_argN_copy<std::string>;
-  but->func_argN = MEM_new<std::string>(__func__, menu_type);
+  but->func_argN_free_fn = MEM_delete_void;
+  but->func_argN_copy_fn = MEM_dupalloc_void;
+  but->func_argN = BLI_strdup(menu_type);
 }
 
 static void but_submenu_enable(Block *block, Button *but)
@@ -5900,6 +5881,12 @@ const char *button_placeholder_get(Button *but)
   return placeholder;
 }
 
+void button_clear_selection(Button *but)
+{
+  but->selsta = 0;
+  but->selend = 0;
+}
+
 void button_type_set_menu_from_pulldown(Button *but)
 {
   BLI_assert(but->type == ButtonType::Pulldown);
@@ -6306,8 +6293,8 @@ void button_func_search_set(Button *but,
                             ButtonSearchCreateFn search_create_fn,
                             ButtonSearchUpdateFn search_update_fn,
                             void *arg,
+                            const bool free_arg,
                             FreeArgFunc search_arg_free_fn,
-                            ButtonArgNCopy search_arg_copy_fn,
                             ButtonHandleFunc search_exec_fn,
                             void *active)
 {
@@ -6325,6 +6312,9 @@ void button_func_search_set(Button *but,
   search_but->items_update_fn = search_update_fn;
   search_but->item_active = active;
 
+  if (free_arg && !search_arg_free_fn) {
+    search_arg_free_fn = MEM_delete_void;
+  }
   search_but->arg = std::shared_ptr<void>(
       arg,
       search_arg_free_fn ?
@@ -6340,19 +6330,13 @@ void button_func_search_set(Button *but,
     }
 #endif
     /* Handling will pass the active item as arg2 later, so keep it nullptr here. */
-    if (search_arg_copy_fn) {
+    if (free_arg) {
       /* XXX This is only done so `but_equals_old()` can recognize this button over redraws,
        * otherwise interaction breaks entirely. Unlike #button_funcN_set(), #button_func_set() sets
        * arg1, which takes part in the comparison, so the pointer needs to be stable over redraws.
        * #button_funcN_set() doesn't set it, but takes ownership of the memory and frees it later.
        * So give it a duplicate of the memory. */
-      BLI_assert(search_arg_free_fn);
-      button_funcN_set(but,
-                       search_exec_fn,
-                       search_arg_copy_fn(search_but->arg.get()),
-                       nullptr,
-                       search_arg_free_fn,
-                       search_arg_copy_fn);
+      button_funcN_set(but, search_exec_fn, MEM_dupalloc_void(search_but->arg.get()), nullptr);
     }
     else {
       button_func_set(but, search_exec_fn, search_but->arg.get(), nullptr);
@@ -6491,7 +6475,7 @@ Button *uiDefSearchButO_ptr(Block *block,
                          searchbox_create_generic,
                          operator_enum_search_update_fn,
                          but,
-                         nullptr,
+                         false,
                          nullptr,
                          operator_enum_search_exec_fn,
                          nullptr);
@@ -6638,11 +6622,10 @@ void button_focus_on_enter_event(wmWindow *win, Button *but)
   WM_event_add(win, &event);
 }
 
-void button_func_hold_set(Button *but, ButtonHandleHoldFunc func, std::string arg)
+void button_func_hold_set(Button *but, ButtonHandleHoldFunc func, void *argN)
 {
   but->hold_func = func;
-  MEM_delete(but->hold_arg);
-  but->hold_arg = MEM_new<std::string>(__func__, std::move(arg));
+  but->hold_argN = argN;
 }
 
 /** \} */

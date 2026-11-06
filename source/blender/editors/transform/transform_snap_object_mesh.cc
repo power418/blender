@@ -29,28 +29,17 @@ namespace blender::ed::transform {
 /** \name Snap Object Data
  * \{ */
 
-bke::BVHTreeFromMesh &SnapTargetTreesMesh::corner_tris()
+static void snap_object_data_mesh_get(const Mesh *mesh_eval,
+                                      bool skip_hidden,
+                                      bke::BVHTreeFromMesh *r_treedata)
 {
-  if (!corner_tris_) {
-    corner_tris_ = skip_hidden_ ? mesh_.bvh_corner_tris_no_hidden() : mesh_.bvh_corner_tris();
+  /* The BVHTree from corner_tris is always required. */
+  if (skip_hidden) {
+    *r_treedata = mesh_eval->bvh_corner_tris_no_hidden();
   }
-  return *corner_tris_;
-}
-
-bke::BVHTreeFromMesh &SnapTargetTreesMesh::loose_edges()
-{
-  if (!loose_edges_) {
-    loose_edges_ = skip_hidden_ ? mesh_.bvh_loose_no_hidden_edges() : mesh_.bvh_loose_edges();
+  else {
+    *r_treedata = mesh_eval->bvh_corner_tris();
   }
-  return *loose_edges_;
-}
-
-bke::BVHTreeFromMesh &SnapTargetTreesMesh::loose_verts()
-{
-  if (!loose_verts_) {
-    loose_verts_ = skip_hidden_ ? mesh_.bvh_loose_no_hidden_verts() : mesh_.bvh_loose_verts();
-  }
-  return *loose_verts_;
 }
 
 /** \} */
@@ -94,7 +83,7 @@ static bool raycastMesh(SnapObjectContext *sctx,
                         const Mesh *mesh_eval,
                         const float4x4 &obmat,
                         const uint ob_index,
-                        SnapTargetTrees &trees)
+                        bool use_hide)
 {
   bool retval = false;
 
@@ -141,7 +130,8 @@ static bool raycastMesh(SnapObjectContext *sctx,
     len_diff = 0.0f;
   }
 
-  bke::BVHTreeFromMesh &treedata = trees.corner_tris();
+  bke::BVHTreeFromMesh treedata;
+  snap_object_data_mesh_get(mesh_eval, use_hide, &treedata);
 
   const Span<int> tri_faces = mesh_eval->corner_tri_faces();
 
@@ -205,9 +195,10 @@ static bool nearest_world_mesh(SnapObjectContext *sctx,
                                const Object *ob_eval,
                                const Mesh *mesh_eval,
                                const float4x4 &obmat,
-                               SnapTargetTrees &trees)
+                               bool use_hide)
 {
-  bke::BVHTreeFromMesh &treedata = trees.corner_tris();
+  bke::BVHTreeFromMesh treedata;
+  snap_object_data_mesh_get(mesh_eval, use_hide, &treedata);
   if (treedata.tree == nullptr) {
     return false;
   }
@@ -495,12 +486,14 @@ eSnapMode snap_edge_points_mesh(SnapObjectContext *sctx,
   return elem;
 }
 
-static eSnapMode mesh_snap_mode_supported(const Mesh *mesh)
+static eSnapMode mesh_snap_mode_supported(const Mesh *mesh, bool skip_hidden)
 {
-  /* Whether anything can be snapped to with #SCE_SNAP_TO_POINT isn't known until
-   * #SnapTargetTrees::loose_verts is built, and that doesn't directly correspond to
-   * #Mesh::loose_verts(). */
-  eSnapMode snap_mode_supported = SCE_SNAP_TO_POINT;
+  /* When skipping hidden geometry, we still cannot obtain the number of loose verts
+   * until computing #BVHTREE_FROM_LOOSEVERTS_NO_HIDDEN. Therefore, consider #SCE_SNAP_TO_POINT
+   * supported even if the mesh has no loose vertices in this case. */
+  eSnapMode snap_mode_supported = (skip_hidden || !mesh->loose_verts().is_empty()) ?
+                                      SCE_SNAP_TO_POINT :
+                                      SCE_SNAP_TO_NONE;
   if (mesh->faces_num) {
     snap_mode_supported |= SCE_SNAP_TO_FACE | SCE_SNAP_TO_FACE_MIDPOINT |
                            SCE_SNAP_INDIVIDUAL_NEAREST | SNAP_TO_EDGE_ELEMENTS;
@@ -516,7 +509,7 @@ static eSnapMode snapMesh(SnapObjectContext *sctx,
                           const Object *ob_eval,
                           const Mesh *mesh_eval,
                           const float4x4 &obmat,
-                          SnapTargetTrees &trees,
+                          bool skip_hidden,
                           bool is_editmesh,
                           eSnapMode snap_to)
 {
@@ -532,18 +525,21 @@ static eSnapMode snapMesh(SnapObjectContext *sctx,
     }
   }
 
-  snap_to &= mesh_snap_mode_supported(mesh_eval) &
+  snap_to &= mesh_snap_mode_supported(mesh_eval, skip_hidden) &
              (SNAP_TO_EDGE_ELEMENTS | SCE_SNAP_TO_POINT | SCE_SNAP_TO_FACE_MIDPOINT);
   if (snap_to == SCE_SNAP_TO_NONE) {
     return SCE_SNAP_TO_NONE;
   }
 
-  const bke::BVHTreeFromMesh &treedata = trees.corner_tris();
+  bke::BVHTreeFromMesh treedata;
+  snap_object_data_mesh_get(mesh_eval, skip_hidden, &treedata);
 
   const BVHTree *bvhtree[2] = {nullptr};
-  bvhtree[0] = trees.loose_edges().tree;
+  bvhtree[0] = skip_hidden ? mesh_eval->bvh_loose_no_hidden_edges().tree :
+                             mesh_eval->bvh_loose_edges().tree;
   if (snap_to & SCE_SNAP_TO_POINT) {
-    bvhtree[1] = trees.loose_verts().tree;
+    bvhtree[1] = skip_hidden ? mesh_eval->bvh_loose_no_hidden_verts().tree :
+                               mesh_eval->bvh_loose_verts().tree;
   }
 
   /* #XRAY_ENABLED can return false even with the XRAY flag enabled, this happens because the
@@ -681,43 +677,32 @@ eSnapMode snap_object_mesh(SnapObjectContext *sctx,
                            const ID *id,
                            const float4x4 &obmat,
                            eSnapMode snap_to_flag,
-                           SnapTargetTrees &trees,
+                           bool skip_hidden,
                            bool is_editmesh)
 {
   eSnapMode elem = SCE_SNAP_TO_NONE;
   const Mesh *mesh_eval = reinterpret_cast<const Mesh *>(id);
 
   if (snap_to_flag & (SNAP_TO_EDGE_ELEMENTS | SCE_SNAP_TO_POINT | SCE_SNAP_TO_FACE_MIDPOINT)) {
-    elem = snapMesh(sctx, ob_eval, mesh_eval, obmat, trees, is_editmesh, snap_to_flag);
+    elem = snapMesh(sctx, ob_eval, mesh_eval, obmat, skip_hidden, is_editmesh, snap_to_flag);
     if (elem) {
       return elem;
     }
   }
 
   if (snap_to_flag & SCE_SNAP_TO_FACE) {
-    if (raycastMesh(sctx, ob_eval, mesh_eval, obmat, sctx->runtime.object_index++, trees)) {
+    if (raycastMesh(sctx, ob_eval, mesh_eval, obmat, sctx->runtime.object_index++, skip_hidden)) {
       return SCE_SNAP_TO_FACE;
     }
   }
 
   if (snap_to_flag & SCE_SNAP_INDIVIDUAL_NEAREST) {
-    if (nearest_world_mesh(sctx, ob_eval, mesh_eval, obmat, trees)) {
+    if (nearest_world_mesh(sctx, ob_eval, mesh_eval, obmat, skip_hidden)) {
       return SCE_SNAP_INDIVIDUAL_NEAREST;
     }
   }
 
   return SCE_SNAP_TO_NONE;
-}
-
-eSnapMode snap_object_mesh(SnapObjectContext *sctx,
-                           const Object *ob_eval,
-                           const ID *id,
-                           const float4x4 &obmat,
-                           eSnapMode snap_to_flag,
-                           const bool skip_hidden)
-{
-  SnapTargetTreesMesh trees(*id_cast<const Mesh *>(id), skip_hidden);
-  return snap_object_mesh(sctx, ob_eval, id, obmat, snap_to_flag, trees, false);
 }
 
 }  // namespace blender::ed::transform

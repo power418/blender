@@ -13,7 +13,6 @@
 #include "BLI_math_base.hh"
 #include "BLI_math_vector_types.hh"
 #include "BLI_span.hh"
-#include "BLI_unroll.hh"
 #include "BLI_utildefines.hh"
 
 namespace blender::math {
@@ -288,12 +287,6 @@ template<typename T, int Size> [[nodiscard]] inline VecBase<T, Size> exp(const V
   BLI_UNROLL_MATH_VEC_OP_VEC(math::exp, x);
 }
 
-/* Per-element natural logarithm. */
-template<typename T, int Size> [[nodiscard]] inline VecBase<T, Size> log(const VecBase<T, Size> &x)
-{
-  BLI_UNROLL_MATH_VEC_OP_VEC(math::log, x);
-}
-
 /**
  * Returns \a a if it is a multiple of \a b or the next multiple or \a b after \b a .
  * In other words, it is equivalent to `divide_ceil(a, b) * b`.
@@ -432,7 +425,9 @@ template<typename T, int Size>
 [[nodiscard]] inline T dot(const VecBase<T, Size> &a, const VecBase<T, Size> &b)
 {
   T result = a[0] * b[0];
-  unroll<Size - 1>([&](auto i) { result += a[i + 1] * b[i + 1]; });
+  for (int i = 1; i < Size; i++) {
+    result += a[i] * b[i];
+  }
   return result;
 }
 
@@ -833,10 +828,5 @@ template<typename T, int Size>
                                                            const VecBase<T, Size> &v2,
                                                            const VecBase<T, Size> &v3,
                                                            const VecBase<T, Size> &v4);
-
-/** Add a translation to every point, optionally using multi-threading. */
-void translate_points(MutableSpan<float3> points,
-                      const float3 &translation,
-                      bool use_threading = true);
 
 }  // namespace blender::math

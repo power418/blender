@@ -441,7 +441,7 @@ void BKE_defvert_flip_merged(MDeformVert *dvert, const int *flip_map, const int 
       if (flip_map[dw->def_nr] >= 0) {
         /* error checkers complain of this but we'll never get nullptr return */
         dw_cpy = BKE_defvert_ensure_index(dvert, flip_map[dw->def_nr]);
-        dw = &dvert->dw[i]; /* in case array got reallocated */
+        dw = &dvert->dw[i]; /* in case array got realloced */
 
         /* distribute weights: if only one of the vertex groups was
          * assigned this will halve the weights, otherwise it gets
@@ -1775,22 +1775,15 @@ void gather_deform_verts(const Span<MDeformVert> src,
                          const Span<int> indices,
                          MutableSpan<MDeformVert> dst)
 {
-  gather_deform_verts(src, indices, IndexMask(indices.size()), dst);
-}
-void gather_deform_verts(const Span<MDeformVert> src,
-                         const Span<int> indices,
-                         const IndexMask &dst_mask,
-                         MutableSpan<MDeformVert> dst)
-{
   PRF_scope(ProfileCategory::Default);
-  dst_mask.foreach_index(
-      [&](const int64_t dst_i) {
-        const int src_i = indices[dst_i];
-        dst[dst_i].dw = MEM_dupalloc(src[src_i].dw);
-        dst[dst_i].totweight = src[src_i].totweight;
-        dst[dst_i].flag = src[src_i].flag;
-      },
-      exec_mode::grain_size(512));
+  threading::parallel_for(indices.index_range(), 512, [&](const IndexRange range) {
+    for (const int dst_i : range) {
+      const int src_i = indices[dst_i];
+      dst[dst_i].dw = MEM_dupalloc(src[src_i].dw);
+      dst[dst_i].totweight = src[src_i].totweight;
+      dst[dst_i].flag = src[src_i].flag;
+    }
+  });
 }
 void gather_deform_verts(const Span<MDeformVert> src,
                          const IndexMask &indices,

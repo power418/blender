@@ -19,8 +19,6 @@ class HIPRTDeviceQueue : public HIPDeviceQueue {
  public:
   HIPRTDeviceQueue(HIPRTDevice *device);
   ~HIPRTDeviceQueue() override = default;
-
-  int num_concurrent_states(const size_t state_size) const override;
   bool enqueue(DeviceKernel kernel,
                const int work_size,
                const DeviceKernelArguments &args) override;

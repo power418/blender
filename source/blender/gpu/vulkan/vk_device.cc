@@ -37,6 +37,8 @@ void VKExtensions::log() const
 {
   CLOG_DEBUG(&LOG,
              "Device features\n"
+             " - [%c] shader output viewport index\n"
+             " - [%c] shader output layer\n"
              " - [%c] fragment shader barycentric\n"
              " - [%c] wide lines\n"
              " - [%c] multi draw indirect\n"
@@ -54,11 +56,11 @@ void VKExtensions::log() const
              " - [%c] pageable device local memory\n"
              " - [%c] provoking vertex\n"
              " - [%c] shader stencil export\n"
-             " - [%c] shader output viewport index and layer\n"
-             " - [%c] spirv 1.4\n"
              " - [%c] ray queries\n"
              " - [%c] vertex input dynamic state\n"
              " - [%c] vertex pipeline stores and atomics",
+             shader_output_viewport_index ? 'X' : ' ',
+             shader_output_layer ? 'X' : ' ',
              fragment_shader_barycentric ? 'X' : ' ',
              wide_lines ? 'X' : ' ',
              multi_draw_indirect ? 'X' : ' ',
@@ -75,8 +77,6 @@ void VKExtensions::log() const
              pageable_device_local_memory ? 'X' : ' ',
              provoking_vertex ? 'X' : ' ',
              GPU_stencil_export_support() ? 'X' : ' ',
-             shader_viewport_index_layer ? 'X' : ' ',
-             spirv_1_4 ? 'X' : ' ',
              GPU_ray_query_support() ? 'X' : ' ',
              vertex_input_dynamic_state ? 'X' : ' ',
              GPU_vertex_pipeline_stores_and_atomics_support() ? 'X' : ' ');
@@ -87,10 +87,8 @@ void VKWorkarounds::log() const
   CLOG_DEBUG(&LOG,
              "Activated workarounds\n"
              " - [%c] Not 16/32 bit aligned image formats\n"
-             " - [%c] Static viewport & scissor state\n"
              " - [%c] No texture pool",
              not_aligned_pixel_formats ? 'X' : ' ',
-             static_viewport_scissor ? 'X' : ' ',
              GCaps.texture_pool_workaround ? 'X' : ' ');
 }
 
@@ -112,13 +110,6 @@ void VKDevice::deinit()
   samplers_.free();
   GPU_SHADER_FREE_SAFE(vk_backbuffer_blit_sh_);
 
-  /* Destroy resources that reached a zero ref count but were never consumed by a submission,
-   * as no further submissions will drain them. */
-  {
-    Vector<render_graph::VKResourceStateTracker::DiscardableResource> discardable =
-        resources.pop_discardable_resources();
-    orphaned_data.discard_resources(discardable, UINT64_MAX);
-  }
   orphaned_data_render.deinit(*this);
   orphaned_data.deinit(*this);
   {
@@ -245,9 +236,12 @@ void VKDevice::init_physical_device_features()
   features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
   vk_physical_device_vulkan_11_features_.sType =
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+  vk_physical_device_vulkan_12_features_.sType =
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
 
   features.pNext = &vk_physical_device_vulkan_11_features_;
-  vk_physical_device_vulkan_11_features_.pNext =
+  vk_physical_device_vulkan_11_features_.pNext = &vk_physical_device_vulkan_12_features_;
+  vk_physical_device_vulkan_12_features_.pNext =
       &vk_physical_device_acceleration_structure_features_;
 
   vkGetPhysicalDeviceFeatures2(vk_physical_device_, &features);
@@ -300,13 +294,16 @@ shader::GeneratedSource VKDevice::extensions_define(StringRefNull stage_define,
   std::stringstream ss;
 
   ss << "#version " << glsl_patch_version_get(use_ray_query) << "\n";
+  {
+    /* Required extension. */
+    ss << "#extension GL_ARB_shader_draw_parameters : enable\n";
+    ss << "#define GPU_ARB_shader_draw_parameters\n";
+    ss << "#define gpu_BaseInstance (gl_BaseInstanceARB)\n";
+  }
   ss << "#define GPU_ARB_clip_control\n";
   ss << "#define GPU_ARB_derivative_control\n";
 
   ss << "#define gl_VertexID gl_VertexIndex\n";
-  /* usage of gpu_BaseInstance is deprecated to support more Android devices. Prefer to use
-   * gpu_InstanceIndex. */
-  ss << "#define gpu_BaseInstance (0)\n";
   ss << "#define gpu_InstanceIndex (gl_InstanceIndex)\n";
   ss << "#define gl_InstanceID (gpu_InstanceIndex)\n";
 
@@ -322,7 +319,6 @@ shader::GeneratedSource VKDevice::extensions_define(StringRefNull stage_define,
   }
   if (use_ray_query) {
     ss << "#extension GL_EXT_ray_query : enable\n";
-    ss << "#define GPU_EXT_RAY_QUERY\n";
   }
   if (!extensions_.provoking_vertex) {
     ss << "#define GPU_PROVOKING_VERTEX_LAST\n";

@@ -20,9 +20,11 @@
 
 namespace blender {
 
-namespace draw {
-struct Batch;
-}  // namespace draw
+namespace gpu {
+class Batch;
+class IndexBuf;
+class VertBuf;
+}  // namespace gpu
 struct Object;
 namespace bke {
 enum class AttrDomain : int8_t;
@@ -59,19 +61,17 @@ class DrawCache : public bke::pbvh::DrawCache {
   /**
    * Recalculate and copy data as necessary to prepare batches for drawing triangles for a
    * specific combination of attributes.
-   * \note Calls within the drawing of a single viewport must use the same nodes_to_update mask.
    */
-  virtual Span<Batch *> ensure_tris_batches(const Object &object,
-                                            const ViewportRequest &request,
-                                            const IndexMask &nodes_to_update) = 0;
+  virtual Span<gpu::Batch *> ensure_tris_batches(const Object &object,
+                                                 const ViewportRequest &request,
+                                                 const IndexMask &nodes_to_update) = 0;
   /**
    * Recalculate and copy data as necessary to prepare batches for drawing wireframe geometry for a
    * specific combination of attributes.
-   * \note Calls within the drawing of a single viewport must use the same nodes_to_update mask.
    */
-  virtual Span<Batch *> ensure_lines_batches(const Object &object,
-                                             const ViewportRequest &request,
-                                             const IndexMask &nodes_to_update) = 0;
+  virtual Span<gpu::Batch *> ensure_lines_batches(const Object &object,
+                                                  const ViewportRequest &request,
+                                                  const IndexMask &nodes_to_update) = 0;
 
   /**
    * Return the material index for each node (all faces in a node should have the same material

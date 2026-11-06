@@ -172,7 +172,6 @@ void register_nodes()
   register_node_type_frame();
   register_node_type_reroute();
   register_node_type_implicit_conversion();
-  register_node_type_comment();
   register_node_type_group_input();
   register_node_type_group_output();
 

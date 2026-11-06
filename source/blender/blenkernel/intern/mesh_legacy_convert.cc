@@ -1266,9 +1266,9 @@ void BKE_mesh_legacy_sharp_faces_from_flags(Mesh *mesh)
   const Span<MPoly> polys(
       static_cast<const MPoly *>(CustomData_get_layer(&mesh->face_data, CD_MPOLY)),
       mesh->faces_num);
-  if (std::any_of(polys.begin(),
-                  polys.end(),
-                  [](const MPoly &poly) { return !(poly.flag_legacy & ME_SMOOTH); }))
+  if (std::any_of(polys.begin(), polys.end(), [](const MPoly &poly) {
+        return !(poly.flag_legacy & ME_SMOOTH);
+      }))
   {
     SpanAttributeWriter<bool> sharp_faces = attributes.lookup_or_add_for_write_only_span<bool>(
         "sharp_face", AttrDomain::Face);
@@ -1518,9 +1518,9 @@ void BKE_mesh_legacy_sharp_edges_from_flags(Mesh *mesh)
   if (attributes.contains("sharp_edge")) {
     return;
   }
-  if (std::any_of(edges.begin(),
-                  edges.end(),
-                  [](const MEdge &edge) { return edge.flag_legacy & ME_SHARP; }))
+  if (std::any_of(edges.begin(), edges.end(), [](const MEdge &edge) {
+        return edge.flag_legacy & ME_SHARP;
+      }))
   {
     SpanAttributeWriter<bool> sharp_edges = attributes.lookup_or_add_for_write_only_span<bool>(
         "sharp_edge", AttrDomain::Edge);
@@ -1550,9 +1550,9 @@ void BKE_mesh_legacy_uv_seam_from_flags(Mesh *mesh)
   if (attributes.contains(".uv_seam")) {
     return;
   }
-  if (std::any_of(edges.begin(),
-                  edges.end(),
-                  [](const MEdge &edge) { return edge.flag_legacy & ME_SEAM; }))
+  if (std::any_of(edges.begin(), edges.end(), [](const MEdge &edge) {
+        return edge.flag_legacy & ME_SEAM;
+      }))
   {
     SpanAttributeWriter<bool> uv_seams = attributes.lookup_or_add_for_write_only_span<bool>(
         ".uv_seam", AttrDomain::Edge);
@@ -1581,9 +1581,9 @@ void BKE_mesh_legacy_convert_flags_to_hide_layers(Mesh *mesh)
     return;
   }
   const Span<MVert> verts(mesh->mvert, mesh->verts_num);
-  if (std::any_of(verts.begin(),
-                  verts.end(),
-                  [](const MVert &vert) { return vert.flag_legacy & ME_HIDE; }))
+  if (std::any_of(verts.begin(), verts.end(), [](const MVert &vert) {
+        return vert.flag_legacy & ME_HIDE;
+      }))
   {
     SpanAttributeWriter<bool> hide_vert = attributes.lookup_or_add_for_write_only_span<bool>(
         ".hide_vert", AttrDomain::Point);
@@ -1597,9 +1597,9 @@ void BKE_mesh_legacy_convert_flags_to_hide_layers(Mesh *mesh)
 
   if (mesh->medge) {
     const Span<MEdge> edges(mesh->medge, mesh->edges_num);
-    if (std::any_of(edges.begin(),
-                    edges.end(),
-                    [](const MEdge &edge) { return int(edge.flag_legacy) & ME_HIDE; }))
+    if (std::any_of(edges.begin(), edges.end(), [](const MEdge &edge) {
+          return int(edge.flag_legacy) & ME_HIDE;
+        }))
     {
       SpanAttributeWriter<bool> hide_edge = attributes.lookup_or_add_for_write_only_span<bool>(
           ".hide_edge", AttrDomain::Edge);
@@ -1615,9 +1615,9 @@ void BKE_mesh_legacy_convert_flags_to_hide_layers(Mesh *mesh)
   const Span<MPoly> polys(
       static_cast<const MPoly *>(CustomData_get_layer(&mesh->face_data, CD_MPOLY)),
       mesh->faces_num);
-  if (std::any_of(polys.begin(),
-                  polys.end(),
-                  [](const MPoly &poly) { return int(poly.flag_legacy) & ME_HIDE; }))
+  if (std::any_of(polys.begin(), polys.end(), [](const MPoly &poly) {
+        return int(poly.flag_legacy) & ME_HIDE;
+      }))
   {
     SpanAttributeWriter<bool> hide_poly = attributes.lookup_or_add_for_write_only_span<bool>(
         ".hide_poly", AttrDomain::Face);
@@ -1789,9 +1789,9 @@ void BKE_mesh_legacy_convert_flags_to_selection_layers(Mesh *mesh)
 
   if (mesh->medge) {
     const Span<MEdge> edges(mesh->medge, mesh->edges_num);
-    if (std::any_of(edges.begin(),
-                    edges.end(),
-                    [](const MEdge &edge) { return edge.flag_legacy & SELECT; }))
+    if (std::any_of(edges.begin(), edges.end(), [](const MEdge &edge) {
+          return edge.flag_legacy & SELECT;
+        }))
     {
       SpanAttributeWriter<bool> select_edge = attributes.lookup_or_add_for_write_only_span<bool>(
           ".select_edge", AttrDomain::Edge);
@@ -1807,9 +1807,9 @@ void BKE_mesh_legacy_convert_flags_to_selection_layers(Mesh *mesh)
   const Span<MPoly> polys(
       static_cast<const MPoly *>(CustomData_get_layer(&mesh->face_data, CD_MPOLY)),
       mesh->faces_num);
-  if (std::any_of(polys.begin(),
-                  polys.end(),
-                  [](const MPoly &poly) { return poly.flag_legacy & ME_FACE_SEL; }))
+  if (std::any_of(polys.begin(), polys.end(), [](const MPoly &poly) {
+        return poly.flag_legacy & ME_FACE_SEL;
+      }))
   {
     SpanAttributeWriter<bool> select_poly = attributes.lookup_or_add_for_write_only_span<bool>(
         ".select_poly", AttrDomain::Face);
@@ -2447,14 +2447,13 @@ void mesh_freestyle_marks_to_generic(Mesh &mesh)
     if (data != nullptr) {
       static_assert(sizeof(FreestyleEdge) == sizeof(bool));
       static_assert(char(FREESTYLE_EDGE_MARK) == char(true));
-      GList::ArrayData array_data{};
+      Attribute::ArrayData array_data{};
       array_data.data = data;
+      array_data.size = mesh.edges_num;
       sharing_info->add_user();
       array_data.sharing_info = ImplicitSharingPtr<>(sharing_info);
       mesh.attribute_storage.wrap().add(
-          "freestyle_edge",
-          bke::AttrDomain::Edge,
-          GList(CPPType::get<bool>(), std::move(array_data), mesh.edges_num));
+          "freestyle_edge", bke::AttrDomain::Edge, bke::AttrType::Bool, std::move(array_data));
     }
     if (sharing_info != nullptr) {
       sharing_info->remove_user_and_delete_if_last();
@@ -2477,14 +2476,13 @@ void mesh_freestyle_marks_to_generic(Mesh &mesh)
     if (data != nullptr) {
       static_assert(sizeof(FreestyleFace) == sizeof(bool));
       static_assert(char(FREESTYLE_FACE_MARK) == char(true));
-      GList::ArrayData array_data{};
+      Attribute::ArrayData array_data{};
       array_data.data = data;
+      array_data.size = mesh.faces_num;
       sharing_info->add_user();
       array_data.sharing_info = ImplicitSharingPtr<>(sharing_info);
       mesh.attribute_storage.wrap().add(
-          "freestyle_face",
-          bke::AttrDomain::Face,
-          GList(CPPType::get<bool>(), std::move(array_data), mesh.faces_num));
+          "freestyle_face", bke::AttrDomain::Face, bke::AttrType::Bool, std::move(array_data));
     }
     if (sharing_info != nullptr) {
       sharing_info->remove_user_and_delete_if_last();
@@ -2524,13 +2522,12 @@ void mesh_skin_to_generic(Mesh &mesh)
   CustomData_free_layers(&mesh.vert_data, CD_MVERT_SKIN);
 
   AttributeStorage &storage = mesh.attribute_storage.wrap();
-  auto add_array = [&]<typename T>(const StringRef name, const AttrType type, T *array_data) {
-    GList::ArrayData array{};
+  auto add_array = [&](const StringRef name, const AttrType type, void *array_data) {
+    Attribute::ArrayData array{};
     array.data = array_data;
+    array.size = mesh.verts_num;
     array.sharing_info = ImplicitSharingPtr<>(implicit_sharing::info_for_mem_free(array_data));
-    storage.add(name,
-                AttrDomain::Point,
-                GList(attribute_type_to_cpp_type(type), std::move(array), mesh.verts_num));
+    storage.add(name, AttrDomain::Point, type, std::move(array));
   };
   add_array("skin_modifier_radius", AttrType::Float2, radius_data);
   add_array("skin_modifier_root", AttrType::Bool, root_data);
@@ -2588,7 +2585,7 @@ void mesh_skin_to_legacy(AttributeStorage::BlendWriteData &attr_write_data,
       attrs_to_remove.add("skin_modifier_loose");
     }
   }
-  if (radius_array == nullptr && radius_single == nullptr) {
+  if (radius_array == nullptr) {
     return;
   }
 
@@ -2808,12 +2805,12 @@ void BKE_mesh_calc_edges_tessface(Mesh *mesh)
     mesh->attribute_storage.wrap().remove(name);
   }
   OrderedEdge *vector_data = eh.extract_vector().release().data;
-  bke::GList::ArrayData data{};
+  bke::Attribute::ArrayData data{};
+  data.size = numEdges;
   data.data = reinterpret_cast<int2 *>(vector_data);
   data.sharing_info = ImplicitSharingPtr<>(implicit_sharing::info_for_mem_free(vector_data));
-  mesh->attribute_storage.wrap().add(".edge_verts",
-                                     bke::AttrDomain::Edge,
-                                     bke::GList(CPPType::get<int2>(), std::move(data), numEdges));
+  mesh->attribute_storage.wrap().add(
+      ".edge_verts", bke::AttrDomain::Edge, bke::AttrType::Int32_2D, std::move(data));
   mesh->edge_data = edgeData;
   mesh->edges_num = numEdges;
 }

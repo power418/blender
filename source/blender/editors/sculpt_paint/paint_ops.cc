@@ -60,10 +60,14 @@ static wmOperatorStatus brush_scale_size_exec(bContext *C, wmOperator *op)
   Brush *brush = BKE_paint_brush(paint);
   float scalar = RNA_float_get(op->ptr, "scalar");
 
+  /* Grease Pencil brushes in Paint mode do not use unified size. */
+  const bool use_unified_size = !(brush && brush->gpencil_settings &&
+                                  brush->ob_mode == OB_MODE_PAINT_GREASE_PENCIL);
+
   if (brush) {
     /* Pixel diameter. */
     {
-      const int old_size = BKE_brush_size_get(paint, brush);
+      const int old_size = (use_unified_size) ? BKE_brush_size_get(paint, brush) : brush->size;
       int size = int(scalar * old_size);
 
       if (abs(old_size - size) < U.pixelsize) {
@@ -75,16 +79,30 @@ static wmOperatorStatus brush_scale_size_exec(bContext *C, wmOperator *op)
         }
       }
 
-      BKE_brush_size_set(paint, brush, size);
+      if (use_unified_size) {
+        BKE_brush_size_set(paint, brush, size);
+      }
+      else {
+        brush->size = max_ii(size, 1);
+        BKE_brush_tag_unsaved_changes(brush);
+      }
     }
 
     /* Unprojected diameter. */
     {
-      float unprojected_size = scalar * BKE_brush_unprojected_size_get(paint, brush);
+      float unprojected_size = scalar * (use_unified_size ?
+                                             BKE_brush_unprojected_size_get(paint, brush) :
+                                             brush->unprojected_size);
 
       unprojected_size = std::max(unprojected_size, 0.001f);
 
-      BKE_brush_unprojected_size_set(paint, brush, unprojected_size);
+      if (use_unified_size) {
+        BKE_brush_unprojected_size_set(paint, brush, unprojected_size);
+      }
+      else {
+        brush->unprojected_size = unprojected_size;
+        BKE_brush_tag_unsaved_changes(brush);
+      }
     }
 
     WM_main_add_notifier(NC_BRUSH | NA_EDITED, brush);

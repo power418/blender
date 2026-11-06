@@ -2549,13 +2549,12 @@ static void rna_def_ID(BlenderRNA *brna)
   RNA_def_property_override_flag(prop, PROPOVERRIDE_NO_COMPARISON);
   RNA_def_property_ui_text(prop, "Library", "Library file the data-block is linked from");
 
-  prop = RNA_def_pointer(
-      srna,
-      "library_weak_reference",
-      "LibraryWeakReference",
-      "Library Weak Reference",
-      "Weak reference to the data-block in a library .blend file this "
-      "originated from. For re-use of already appended data and linked editable assets");
+  prop = RNA_def_pointer(srna,
+                         "library_weak_reference",
+                         "LibraryWeakReference",
+                         "Library Weak Reference",
+                         "Weak reference to a data-block in another library .blend file (used to "
+                         "re-use already appended data instead of appending new copies)");
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
   RNA_def_property_override_flag(prop, PROPOVERRIDE_NO_COMPARISON);
 
@@ -2757,7 +2756,7 @@ static void rna_def_ID(BlenderRNA *brna)
   RNA_def_function_flag(func, FUNC_USE_MAIN | FUNC_USE_REPORTS);
   RNA_def_function_ui_description(func,
                                   "Tag the ID to update its display data, "
-                                  "e.g. when calling :class:`bpy.types.ViewLayer.update`");
+                                  "e.g. when calling :class:`bpy.types.Scene.update`");
   RNA_def_enum_flag(func, "refresh", update_flag_items, 0, "", "Type of updates to perform");
 
   func = RNA_def_function(srna, "preview_ensure", "BKE_previewimg_id_ensure");
@@ -2785,11 +2784,7 @@ static void rna_def_library(BlenderRNA *brna)
   prop = RNA_def_property(srna, "filepath", PROP_STRING, PROP_FILEPATH);
   RNA_def_property_string_sdna(prop, nullptr, "filepath");
   RNA_def_property_flag(prop, PROP_PATH_SUPPORTS_BLEND_RELATIVE);
-  RNA_def_property_ui_text(prop,
-                           "File Path",
-                           "Path to the library .blend file. WARNING: Typically, this value "
-                           "should be considered read-only, changing this path without proper "
-                           "processing afterwards can leave Blender data in an invalid state");
+  RNA_def_property_ui_text(prop, "File Path", "Path to the library .blend file");
   RNA_def_property_string_funcs(prop, nullptr, nullptr, "rna_Library_filepath_set");
 
   prop = RNA_def_property(srna, "parent", PROP_POINTER, PROP_NONE);

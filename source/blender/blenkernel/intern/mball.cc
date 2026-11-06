@@ -156,7 +156,6 @@ IDTypeInfo IDType_ID_MB = {
     .foreach_cache = nullptr,
     .foreach_path = nullptr,
     .foreach_working_space_color = nullptr,
-    .foreach_asset_weak_reference = nullptr,
     .owner_pointer_get = nullptr,
 
     .blend_write = metaball_blend_write,
@@ -202,8 +201,8 @@ MetaElem *BKE_mball_element_add(MetaBall *mb, const int type)
       ml->expx = ml->expy = ml->expz = 1.0;
 
       break;
-    case MB_ELLIPSOID:
-      ml->type = MB_ELLIPSOID;
+    case MB_ELIPSOID:
+      ml->type = MB_ELIPSOID;
       ml->expx = 1.2f;
       ml->expy = 0.8f;
       ml->expz = 1.0;

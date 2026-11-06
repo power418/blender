@@ -2,8 +2,6 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
-#include <memory>
-
 #include "MEM_guardedalloc.h"
 
 #include "BLI_implicit_sharing_ptr.hh"

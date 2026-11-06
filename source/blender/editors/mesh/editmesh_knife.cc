@@ -213,7 +213,6 @@ struct KnifeObjectInfo {
 
   /** Only assigned for convenient access. */
   BMEditMesh *em;
-  BMesh *bm;
 };
 
 enum KnifeMode { MODE_IDLE, MODE_DRAGGING, MODE_CONNECT, MODE_PANNING };
@@ -1813,14 +1812,6 @@ static void knife_start_cut(KnifeTool_OpData *kcd, const float2 &mval)
   ED_view3d_win_to_ray_clipped(
       kcd->vc.depsgraph, kcd->region, kcd->vc.v3d, mval, ray_orig, ray_dir, false);
 
-  /* Make sure we have a reasonable `prev.cage` for #knife_snap_curr() to work with in case it
-   * finds no hits. */
-  if (kcd->prev.vert == nullptr && kcd->prev.edge == nullptr) {
-    float ofs_local[3];
-    negate_v3_v3(ofs_local, kcd->vc.rv3d->ofs);
-    ED_view3d_win_to_3d(kcd->vc.v3d, kcd->region, ofs_local, mval, kcd->prev.cage);
-  }
-
   knife_snap_curr(kcd, mval, ray_orig, ray_dir, nullptr, nullptr);
   kcd->prev = kcd->curr;
   kcd->mdata.is_stored = false;
@@ -2215,7 +2206,8 @@ static int sort_verts_by_dist_cb(void *co_p, const void *cur_a_p, const void *cu
 static void knife_make_cuts(KnifeTool_OpData *kcd, int ob_index)
 {
   Object *ob = kcd->objects[ob_index];
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+  BMEditMesh *em = BKE_editmesh_from_object(ob);
+  BMesh *bm = em->bm;
   KnifeEdge *kfe;
   KnifeVert *kfv;
   BMEdge *enew;
@@ -2291,7 +2283,7 @@ static void knife_make_cuts(KnifeTool_OpData *kcd, int ob_index)
   }
 
   if (kcd->only_select) {
-    EDBM_flag_disable_all(bm, BM_ELEM_SELECT);
+    EDBM_flag_disable_all(em, BM_ELEM_SELECT);
   }
 
   /* Do cuts for each face. */
@@ -2525,6 +2517,7 @@ static bool knife_ray_intersect_face(KnifeTool_OpData *kcd,
 static void calc_ortho_extent(KnifeTool_OpData *kcd)
 {
   Object *ob;
+  BMEditMesh *em;
   BMIter iter;
   BMVert *v;
   float min[3], max[3];
@@ -2533,18 +2526,18 @@ static void calc_ortho_extent(KnifeTool_OpData *kcd)
 
   for (int ob_index = 0; ob_index < kcd->objects.size(); ob_index++) {
     ob = kcd->objects[ob_index];
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+    em = BKE_editmesh_from_object(ob);
 
     const Span<float3> positions_cage = kcd->objects_info[ob_index].positions_cage;
     if (!positions_cage.is_empty()) {
-      for (int i = 0; i < bm->totvert; i++) {
+      for (int i = 0; i < em->bm->totvert; i++) {
         copy_v3_v3(ws, positions_cage[i]);
         mul_m4_v3(ob->object_to_world().ptr(), ws);
         minmax_v3v3_v3(min, max, ws);
       }
     }
     else {
-      BM_ITER_MESH (v, &iter, bm, BM_VERTS_OF_MESH) {
+      BM_ITER_MESH (v, &iter, em->bm, BM_VERTS_OF_MESH) {
         copy_v3_v3(ws, v->co);
         mul_m4_v3(ob->object_to_world().ptr(), ws);
         minmax_v3v3_v3(min, max, ws);
@@ -3878,26 +3871,22 @@ static void knifetool_init_obinfo(KnifeTool_OpData *kcd,
   KnifeObjectInfo *obinfo = &kcd->objects_info[ob_index];
 
   if (BKE_editmesh_eval_orig_map_available(mesh_eval, &mesh_orig)) {
-    BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
     BMEditMesh &em_eval = *mesh_eval.runtime->edit_mesh;
     obinfo->em = &em_eval;
-    obinfo->bm = bm;
     obinfo->positions_cage = BKE_editmesh_vert_coords_alloc(
-        kcd->vc.depsgraph, bm, scene_eval, obedit_eval);
+        kcd->vc.depsgraph, &em_eval, scene_eval, obedit_eval);
   }
   else {
     obinfo->em = mesh_orig.runtime->edit_mesh.get();
-    obinfo->bm = BKE_editmesh_bmesh_get_for_write(ob);
-    obinfo->positions_cage = BM_mesh_vert_coords_alloc(obinfo->bm);
+    obinfo->positions_cage = BM_mesh_vert_coords_alloc(obinfo->em->bm);
   }
 
-  BM_mesh_elem_index_ensure(obinfo->bm, BM_VERT);
+  BM_mesh_elem_index_ensure(obinfo->em->bm, BM_VERT);
 
   if (use_tri_indices) {
-    const Span<std::array<BMLoop *, 3>> looptris = obinfo->em->looptris;
     obinfo->tri_indices.reinitialize(obinfo->em->looptris.size());
-    for (int i = 0; i < looptris.size(); i++) {
-      const std::array<BMLoop *, 3> &ltri = looptris[i];
+    for (int i = 0; i < obinfo->em->looptris.size(); i++) {
+      const std::array<BMLoop *, 3> &ltri = obinfo->em->looptris[i];
       obinfo->tri_indices[i][0] = BM_elem_index_get(ltri[0]->v);
       obinfo->tri_indices[i][1] = BM_elem_index_get(ltri[1]->v);
       obinfo->tri_indices[i][2] = BM_elem_index_get(ltri[2]->v);
@@ -4124,9 +4113,8 @@ static void knifetool_finish_single_pre(KnifeTool_OpData *kcd, int ob_index)
 static void knifetool_finish_single_post(KnifeTool_OpData * /*kcd*/, Object *ob)
 {
   BMEditMesh *em = BKE_editmesh_from_object(ob);
-  BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
-  EDBM_selectmode_flush(bm, em->selectmode);
-  EDBM_uvselect_clear(bm);
+  EDBM_selectmode_flush(em);
+  EDBM_uvselect_clear(em);
 
   EDBMUpdate_Params params{};
   params.calc_looptris = true;
@@ -4620,8 +4608,8 @@ static wmOperatorStatus knifetool_invoke(bContext *C, wmOperator *op, const wmEv
   if (only_select) {
     bool faces_selected = false;
     for (Object *obedit : kcd->objects) {
-      const BMesh *bm = BKE_editmesh_bmesh_get(obedit);
-      if (bm->totfacesel != 0) {
+      BMEditMesh *em = BKE_editmesh_from_object(obedit);
+      if (em->bm->totfacesel != 0) {
         faces_selected = true;
       }
     }
@@ -4814,20 +4802,21 @@ void EDBM_mesh_knife(ViewContext *vc,
     /* See #knifetool_finish_ex for why multiple passes are needed. */
     for (int ob_index : kcd->objects.index_range()) {
       Object *ob = kcd->objects[ob_index];
-      BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+      BMEditMesh *em = BKE_editmesh_from_object(ob);
 
       if (use_tag) {
-        BM_mesh_elem_hflag_enable_all(bm, BM_EDGE, BM_ELEM_TAG, false);
+        BM_mesh_elem_hflag_enable_all(em->bm, BM_EDGE, BM_ELEM_TAG, false);
       }
 
       knifetool_finish_single_pre(kcd, ob_index);
     }
 
     for (Object *ob : kcd->objects) {
-      BMesh *bm = BKE_editmesh_bmesh_get_for_write(ob);
+      BMEditMesh *em = BKE_editmesh_from_object(ob);
 
       /* Tag faces inside! */
       if (use_tag) {
+        BMesh *bm = em->bm;
         BMEdge *e;
         BMIter iter;
         bool keep_search;

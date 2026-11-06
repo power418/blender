@@ -486,7 +486,7 @@ static void distortion_model_parameters_from_options(
   BLI_assert_msg(0, "Unknown distortion model");
 }
 
-void tracking_cameraIntrinsicsOptionsFromTracking(
+void tracking_cameraIntrinscisOptionsFromTracking(
     MovieTracking *tracking,
     const int calibration_width,
     const int calibration_height,
@@ -510,7 +510,7 @@ void tracking_cameraIntrinsicsOptionsFromTracking(
   camera_intrinsics_options->image_height = int(calibration_height * aspy);
 }
 
-void tracking_trackingCameraFromIntrinsicsOptions(
+void tracking_trackingCameraFromIntrinscisOptions(
     MovieTracking *tracking, const libmv_CameraIntrinsicsOptions *camera_intrinsics_options)
 {
   MovieTrackingCamera *camera = &tracking->camera;

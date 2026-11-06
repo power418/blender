@@ -9,7 +9,6 @@
 #pragma once
 
 #include "DNA_material_types.h"
-#include "DNA_pointcloud_types.h"
 
 #include "DRW_render.hh"
 
@@ -214,13 +213,6 @@ static inline int to_gbuffer_bin_count(const eClosureBits closure_bits)
   return count_bits_i(closure_data_slots);
 };
 
-static inline eMaterialGeometry to_pointcloud_material_geometry(const Object *ob)
-{
-  BLI_assert(ob->type == OB_POINTCLOUD);
-  PointCloud &pointcloud = DRW_object_get_data_for_drawing<PointCloud>(*ob);
-  return pointcloud.type == PointCloudType::GSplat ? MAT_GEOM_GSPLAT : MAT_GEOM_POINTCLOUD;
-}
-
 static inline eMaterialGeometry to_material_geometry(const Object *ob)
 {
   switch (ob->type) {
@@ -229,8 +221,7 @@ static inline eMaterialGeometry to_material_geometry(const Object *ob)
     case OB_VOLUME:
       return MAT_GEOM_VOLUME;
     case OB_POINTCLOUD:
-      /* Special case: GSplats have their own shader under the same object type for now. */
-      return to_pointcloud_material_geometry(ob);
+      return MAT_GEOM_POINTCLOUD;
     default:
       return MAT_GEOM_MESH;
   }

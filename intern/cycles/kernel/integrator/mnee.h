@@ -220,7 +220,7 @@ ccl_device_inline void mnee_setup_manifold_vertex(KernelGlobals kg,
   /* Manifold vertex position. */
   vtx->p = sd_vtx->P;
 
-  /* Initialize constraint and its derivatives. */
+  /* Initialize constraint and its derivates. */
   vtx->a = vtx->c = zero_float4();
   vtx->b = make_float4(1.f, 0.f, 0.f, 1.f);
   vtx->constraint = zero_float2();
@@ -246,11 +246,12 @@ __attribute__((noinline))
 #else
 ccl_device_inline
 #endif
-bool mnee_compute_constraint_derivatives(const int vertex_count,
-                                         ccl_private ManifoldVertex *vertices,
-                                         const ccl_private float3 &surface_sample_pos,
-                                         const bool light_fixed_direction,
-                                         const float3 light_sample)
+bool mnee_compute_constraint_derivatives(
+  const int vertex_count,
+    ccl_private ManifoldVertex *vertices,
+     const ccl_private  float3 &surface_sample_pos,
+    const bool light_fixed_direction,
+    const float3 light_sample)
 {
   for (int vi = 0; vi < vertex_count; vi++) {
     ccl_private ManifoldVertex &v = vertices[vi];
@@ -1027,15 +1028,6 @@ ccl_device_inline ShaderEvalResult kernel_path_mnee_sample(KernelGlobals kg,
       if (sd_mnee->runtime_flag & SR_CACHE_MISS) {
         return SHADER_EVAL_CACHE_MISS;
       }
-
-#if defined(__KERNEL_ONEAPI__)
-      /* FIXME: Temporary workaround for a bug in the oneAPI + Embree backend that sometimes sets
-       * the SR_BSDF_HAS_DISPERSION flag when calling `surface_shader_eval` inside the MNEE code
-       * path. This happens even in scenes where no material uses dispersion. This workaround
-       * disables dispersion support + MNEE for all oneAPI backends. Proper fix should be on the
-       * oneAPI side. */
-      sd_mnee->runtime_flag &= ~SR_BSDF_HAS_DISPERSION;
-#endif
 
       /* Query before #mnee_setup_manifold_vertex resets the runtime flag. */
       if (sd_mnee->runtime_flag & SR_BSDF_HAS_DISPERSION) {

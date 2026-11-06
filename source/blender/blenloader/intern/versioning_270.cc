@@ -14,7 +14,7 @@
 #define DNA_DEPRECATED_ALLOW
 
 /* Define macros in `DNA_genfile.h`. */
-#define DNA_GENFILE_VERSIONING_MACROS_LEGACY
+#define DNA_GENFILE_VERSIONING_MACROS
 
 #include "DNA_anim_types.h"
 #include "DNA_armature_types.h"
@@ -42,7 +42,7 @@
 
 #include "DNA_genfile.h"
 
-#undef DNA_GENFILE_VERSIONING_MACROS_LEGACY
+#undef DNA_GENFILE_VERSIONING_MACROS
 
 #include "BKE_anim_data.hh"
 #include "BKE_animsys.hh"
@@ -1583,7 +1583,8 @@ void blo_do_versions_270(FileData *fd, Library * /*lib*/, Main *bmain)
         br.falloff_angle_legacy = DEG2RADF(80);
         /* These flags are used for new features. They are not related to `falloff_angle`. */
         br.flag &= ~(BRUSH_INVERT_TO_SCRAPE_FILL | BRUSH_ORIGINAL_PLANE |
-                     BRUSH_GRAB_ACTIVE_VERTEX | BRUSH_SCENE_SPACING | BRUSH_UNUSED_7);
+                     BRUSH_GRAB_ACTIVE_VERTEX | BRUSH_SCENE_SPACING |
+                     BRUSH_FRONTFACE_FALLOFF_DEPRECATED);
       }
 
       for (Scene &scene : bmain->scenes) {

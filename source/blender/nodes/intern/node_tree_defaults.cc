@@ -9,7 +9,6 @@
 #include "DNA_material_types.h"
 #include "DNA_node_types.h"
 #include "DNA_object_types.h"
-#include "DNA_pointcloud_types.h"
 #include "DNA_world_types.h"
 
 #include "BKE_context.hh"
@@ -42,11 +41,6 @@ void node_tree_shader_default(const bContext *C, Main *bmain, ID *id)
 
     if (ob && ob->type == OB_VOLUME) {
       ma_default = BKE_material_default_volume();
-    }
-    else if (ob && ob->type == OB_POINTCLOUD && ob->data &&
-             id_cast<const PointCloud *>(ob->data)->type == PointCloudType::GSplat)
-    {
-      ma_default = BKE_material_default_gsplat();
     }
     else {
       ma_default = BKE_material_default_surface();

@@ -4,7 +4,8 @@
 
 #pragma once
 
-#include "eevee_defines.hh"
+#include "infos/eevee_common_infos.hh"
+
 #include "eevee_occupancy_lib.bsl.hh"
 #include "eevee_uniform.bsl.hh"
 #include "gpu_shader_fullscreen.bsl.hh"

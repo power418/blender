@@ -401,19 +401,20 @@ struct alignas(Alignment) MatBase : public vec_struct_base<VecBase<T, NumRow>, N
 
   friend col_type operator*(const MatBase &a, const row_type &b)
   {
-    col_type result = b[0] * a[0];
-    unroll<NumCol - 1>([&](auto i) { result += b[i + 1] * a[i + 1]; });
+    /* This is the reference implementation.
+     * Might be overloaded with vectorized / optimized code. */
+    col_type result(0);
+    unroll<NumCol>([&](auto c) { result += b[c] * a[c]; });
     return result;
   }
 
   /** Multiply by the transposed. */
   friend row_type operator*(const col_type &a, const MatBase &b)
   {
-    row_type result;
-    unroll<NumCol>([&](auto c) {
-      result[c] = b[c][0] * a[0];
-      unroll<NumRow - 1>([&](auto r) { result[c] += b[c][r + 1] * a[r + 1]; });
-    });
+    /* This is the reference implementation.
+     * Might be overloaded with vectorized / optimized code. */
+    row_type result(0);
+    unroll<NumCol>([&](auto c) { unroll<NumRow>([&](auto r) { result[c] += b[c][r] * a[r]; }); });
     return result;
   }
 
@@ -664,19 +665,20 @@ struct MatView : NonCopyable, NonMovable {
 
   friend col_type operator*(const MatView &a, const row_type &b)
   {
-    col_type result = b[0] * a[0];
-    unroll<NumCol - 1>([&](auto i) { result += b[i + 1] * a[i + 1]; });
+    /* This is the reference implementation.
+     * Might be overloaded with vectorized / optimized code. */
+    col_type result(0);
+    unroll<NumCol>([&](auto c) { result += b[c] * a[c]; });
     return result;
   }
 
   /** Multiply by the transposed. */
   friend row_type operator*(const col_type &a, const MatView &b)
   {
-    row_type result;
-    unroll<NumCol>([&](auto c) {
-      result[c] = b[c][0] * a[0];
-      unroll<NumRow - 1>([&](auto r) { result[c] += b[c][r + 1] * a[r + 1]; });
-    });
+    /* This is the reference implementation.
+     * Might be overloaded with vectorized / optimized code. */
+    row_type result(0);
+    unroll<NumCol>([&](auto c) { unroll<NumRow>([&](auto r) { result[c] += b[c][r] * a[r]; }); });
     return result;
   }
 
@@ -879,13 +881,21 @@ struct MutableMatView
 
   friend col_type operator*(MutableMatView &a, const row_type &b)
   {
-    return static_cast<const MatViewT &>(a) * b;
+    /* This is the reference implementation.
+     * Might be overloaded with vectorized / optimized code. */
+    col_type result(0);
+    unroll<NumCol>([&](auto c) { result += b[c] * a[c]; });
+    return result;
   }
 
   /** Multiply by the transposed. */
   friend row_type operator*(const col_type &a, MutableMatView &b)
   {
-    return a * static_cast<const MatViewT &>(b);
+    /* This is the reference implementation.
+     * Might be overloaded with vectorized / optimized code. */
+    row_type result(0);
+    unroll<NumCol>([&](auto c) { unroll<NumRow>([&](auto r) { result[c] += b[c][r] * a[r]; }); });
+    return result;
   }
 };
 

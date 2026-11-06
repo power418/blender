@@ -31,8 +31,9 @@
 #  include "BLI_string_utils.hh"
 
 #  include "BKE_animsys.hh"
-#  include "BKE_annotations.h"
 #  include "BKE_global.hh"
+#  include "BKE_gpencil_geom_legacy.h"
+#  include "BKE_gpencil_legacy.h"
 #  include "BKE_icons.hh"
 #  include "BKE_report.hh"
 
@@ -67,14 +68,14 @@ static bGPDframe *rna_annotation_frame_new(bGPDlayer *layer,
 {
   bGPDframe *frame;
 
-  if (BKE_annotations_layer_frame_find(layer, frame_number)) {
+  if (BKE_gpencil_layer_frame_find(layer, frame_number)) {
     BKE_reportf(reports, RPT_ERROR, "Frame already exists on this frame number %d", frame_number);
     return nullptr;
   }
 
-  frame = BKE_annotations_frame_addnew(layer, frame_number);
+  frame = BKE_gpencil_frame_addnew(layer, frame_number);
   if (active) {
-    layer->actframe = BKE_annotations_layer_frame_get(layer, frame_number, GP_GETFRAME_USE_PREV);
+    layer->actframe = BKE_gpencil_layer_frame_get(layer, frame_number, GP_GETFRAME_USE_PREV);
   }
   WM_main_add_notifier(NC_GPENCIL | NA_EDITED, nullptr);
 
@@ -91,7 +92,7 @@ static void rna_annotation_frame_remove(bGPDlayer *layer,
     return;
   }
 
-  BKE_annotations_layer_frame_delete(layer, frame);
+  BKE_gpencil_layer_frame_delete(layer, frame);
   frame_ptr->invalidate();
 
   WM_main_add_notifier(NC_GPENCIL | NA_EDITED, nullptr);
@@ -99,9 +100,9 @@ static void rna_annotation_frame_remove(bGPDlayer *layer,
 
 static bGPDframe *rna_annotation_frame_copy(bGPDlayer *layer, bGPDframe *src)
 {
-  bGPDframe *frame = BKE_annotations_frame_duplicate(src, true);
+  bGPDframe *frame = BKE_gpencil_frame_duplicate(src, true);
 
-  while (BKE_annotations_layer_frame_find(layer, frame->framenum)) {
+  while (BKE_gpencil_layer_frame_find(layer, frame->framenum)) {
     frame->framenum++;
   }
 
@@ -114,7 +115,7 @@ static bGPDframe *rna_annotation_frame_copy(bGPDlayer *layer, bGPDframe *src)
 
 static bGPDlayer *rna_annotation_layer_new(bGPdata *gpd, const char *name, bool setactive)
 {
-  bGPDlayer *gpl = BKE_annotations_layer_addnew(gpd, name, setactive != 0, false);
+  bGPDlayer *gpl = BKE_gpencil_layer_addnew(gpd, name, setactive != 0, false);
 
   WM_main_add_notifier(NC_GPENCIL | ND_DATA | NA_EDITED, nullptr);
 
@@ -129,7 +130,7 @@ static void rna_annotation_layer_remove(bGPdata *gpd, ReportList *reports, Point
     return;
   }
 
-  BKE_annotations_layer_delete(gpd, layer);
+  BKE_gpencil_layer_delete(gpd, layer);
   layer_ptr->invalidate();
 
   WM_main_add_notifier(NC_GPENCIL | ND_DATA | NA_EDITED, nullptr);
@@ -194,7 +195,7 @@ static void rna_annotation_layer_info_set(PointerRNA *ptr, const char *value)
 static int rna_annotation_active_layer_index_get(PointerRNA *ptr)
 {
   bGPdata *gpd = rna_annotations(ptr);
-  bGPDlayer *gpl = BKE_annotations_layer_active_get(gpd);
+  bGPDlayer *gpl = BKE_gpencil_layer_active_get(gpd);
 
   return BLI_findindex(&gpd->layers, gpl);
 }
@@ -204,7 +205,7 @@ static void rna_annotation_active_layer_index_set(PointerRNA *ptr, int value)
   bGPdata *gpd = rna_annotations(ptr);
   bGPDlayer *gpl = static_cast<bGPDlayer *>(BLI_findlink(&gpd->layers, value));
 
-  BKE_annotations_layer_active_set(gpd, gpl);
+  BKE_gpencil_layer_active_set(gpd, gpl);
 
   /* Now do standard updates... */
   DEG_id_tag_update(&gpd->id, ID_RECALC_GEOMETRY);
@@ -291,7 +292,7 @@ static void rna_annotation_stroke_remove(bGPDframe *frame,
   }
 
   BLI_remlink(&frame->strokes, stroke);
-  BKE_annotations_free_stroke(stroke);
+  BKE_gpencil_free_stroke(stroke);
 
   /* Clear ptrs. */
   stroke_ptr->data = nullptr;

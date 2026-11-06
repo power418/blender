@@ -20,7 +20,6 @@
 #include "BKE_pointcloud.hh"
 #include "BKE_volume.hh"
 
-#include "BLI_generic_array.hh"
 #include "BLI_listbase.hh"
 #include "BLI_math_matrix_types.hh"
 #include "BLI_path_utils.hh"
@@ -421,14 +420,16 @@ static std::shared_ptr<DictionaryValue> write_blob_shared_simple_gspan(
     const int size,
     const ImplicitSharingInfo **r_sharing_info)
 {
+  const char *func = __func__;
   const std::optional<ImplicitSharingInfoAndData> sharing_info_and_data = blob_sharing.read_shared(
       io_data, [&]() -> std::optional<ImplicitSharingInfoAndData> {
-        GArray<> data(cpp_type, size, NoInitialization());
-        if (!read_blob_simple_gspan(blob_reader, io_data, data)) {
+        void *data_mem = MEM_new_uninitialized_aligned(
+            size * cpp_type.size, cpp_type.alignment, func);
+        if (!read_blob_simple_gspan(blob_reader, io_data, {cpp_type, data_mem, size})) {
+          MEM_delete_void(data_mem);
           return std::nullopt;
         }
-        auto *sharing_info = new ImplicitSharedValue<GArray<>>(std::move(data));
-        return ImplicitSharingInfoAndData{sharing_info, sharing_info->data.data()};
+        return ImplicitSharingInfoAndData{implicit_sharing::info_for_mem_free(data_mem), data_mem};
       });
   if (!sharing_info_and_data) {
     *r_sharing_info = nullptr;
@@ -584,10 +585,8 @@ static PointCloud *try_load_pointcloud(const DictionaryValue &io_geometry,
   if (!io_attributes) {
     return nullptr;
   }
-  const PointCloudType type = PointCloudType(
-      io_pointcloud->lookup_int("type").value_or(int(PointCloudType::Points)));
   const int points_num = io_pointcloud->lookup_int("num_points").value_or(0);
-  PointCloud *pointcloud = bke::pointcloud_new_no_attributes(type, points_num);
+  PointCloud *pointcloud = bke::pointcloud_new_no_attributes(points_num);
 
   auto cancel = [&]() {
     BKE_id_free(nullptr, pointcloud);
@@ -998,17 +997,16 @@ static Volume *try_load_volume(const DictionaryValue &io_geometry, const BlobRea
   }
   openvdb::GridPtrVecPtr vdb_grids;
   if (std::optional<BlobSlice> vdb_slice = BlobSlice::deserialize(*io_vdb)) {
-    if (!blob_reader.read_as_stream(*vdb_slice,
-                                    [&](std::istream &stream) {
-                                      try {
-                                        openvdb::io::Stream vdb_stream{stream};
-                                        vdb_grids = vdb_stream.getGrids();
-                                        return true;
-                                      }
-                                      catch (...) {
-                                        return false;
-                                      }
-                                    }))
+    if (!blob_reader.read_as_stream(*vdb_slice, [&](std::istream &stream) {
+          try {
+            openvdb::io::Stream vdb_stream{stream};
+            vdb_grids = vdb_stream.getGrids();
+            return true;
+          }
+          catch (...) {
+            return false;
+          }
+        }))
     {
       return nullptr;
     }
@@ -1226,7 +1224,6 @@ static std::shared_ptr<DictionaryValue> serialize_geometry_set(const GeometrySet
     const PointCloud &pointcloud = *geometry.get_pointcloud();
     auto io_pointcloud = io_geometry->append_dict("pointcloud");
 
-    io_pointcloud->append_int("type", int(pointcloud.type));
     io_pointcloud->append_int("num_points", pointcloud.totpoint);
 
     auto io_materials = serialize_materials(pointcloud.runtime->bake_materials);
@@ -1886,17 +1883,16 @@ static std::optional<SocketValueVariant> deserialize_bake_item(const DictionaryV
       return {};
     }
     openvdb::GridPtrVecPtr vdb_grids;
-    if (!blob_reader.read_as_stream(*vdb_slice,
-                                    [&](std::istream &stream) {
-                                      try {
-                                        openvdb::io::Stream vdb_stream{stream};
-                                        vdb_grids = vdb_stream.getGrids();
-                                        return true;
-                                      }
-                                      catch (...) {
-                                        return false;
-                                      }
-                                    }))
+    if (!blob_reader.read_as_stream(*vdb_slice, [&](std::istream &stream) {
+          try {
+            openvdb::io::Stream vdb_stream{stream};
+            vdb_grids = vdb_stream.getGrids();
+            return true;
+          }
+          catch (...) {
+            return false;
+          }
+        }))
     {
       return {};
     }

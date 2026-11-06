@@ -294,14 +294,14 @@ ccl_device_forceinline bool spot_light_tree_parameters(const ccl_global KernelLi
                                          one_float2() * radius / M_SQRT2_F;
   }
   else {
-    const float hypotenuse = sqrtf(sqr(radius) + sqr(min_distance));
-    cos_theta_u = min_distance / hypotenuse;
+    const float hypotenus = sqrtf(sqr(radius) + sqr(min_distance));
+    cos_theta_u = min_distance / hypotenus;
 
     if (in_volume_segment) {
       return true;
     }
 
-    distance.x = hypotenuse;
+    distance.x = hypotenus;
   }
 
   /* Apply a similar scaling as in `spot_light_attenuation()` to account for spot blend. */

@@ -10,18 +10,19 @@ void main()
 {
   uint ray_index = gl_GlobalInvocationID.x;
 
-  rayQuery query;
-  rayQueryInitialize(query,
-                     scene_as,
-                     gpu_RayFlagsTerminateOnFirstHit,
-                     intersection_mask_in,
-                     ray_pos_in[ray_index].xyz,
-                     0.01,
-                     ray_dir_in[ray_index].xyz,
-                     5.0);
-  rayQueryProceed(query);
+  rayQueryEXT query;
+  rayQueryInitializeEXT(query,
+                        scene_as,
+                        gl_RayFlagsTerminateOnFirstHitEXT,
+                        intersection_mask_in,
+                        ray_pos_in[ray_index].xyz,
+                        0.01,
+                        ray_dir_in[ray_index].xyz,
+                        5.0);
+  rayQueryProceedEXT(query);
 
-  bool is_hit = rayQueryGetIntersectionType(query, true) != gpu_RayQueryCommittedIntersectionNone;
+  bool is_hit = rayQueryGetIntersectionTypeEXT(query, true) !=
+                gl_RayQueryCommittedIntersectionNoneEXT;
 
   hit_out[ray_index] = uint(is_hit);
 }

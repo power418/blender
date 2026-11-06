@@ -56,8 +56,7 @@ static PanoramicViewBits panoramic_fisheye_view_mask_get(const CameraData &cam)
   if (half_fov >= float(M_PI_4) - angle_epsilon) {
     mask |= PANORAMIC_VIEW_SIDES;
   }
-  /* The back face becomes visible once the FOV cone reaches its corners. */
-  if (half_fov >= float(M_PI) - atanf(float(M_SQRT2)) - angle_epsilon) {
+  if (half_fov >= 3.0f * float(M_PI_4) - angle_epsilon) {
     mask |= PanoramicViewBits::BACK;
   }
   return mask;
@@ -128,22 +127,6 @@ static PanoramicViewBits panoramic_view_mask_get(const CameraData &cam)
       return PANORAMIC_VIEW_ALL;
     default:
       return PanoramicViewBits::FRONT;
-  }
-}
-
-static float panoramic_front_face_extent_get(const CameraData &cam)
-{
-  switch (cam.type) {
-    case CAMERA_PANO_EQUIDISTANT:
-    case CAMERA_PANO_EQUISOLID:
-    case CAMERA_PANO_FISHEYE_LENS_POLYNOMIAL: {
-      /* TODO(L3GiaBao): Clip the side faces. This needs a film filter that handles a render pixel
-       * density higher than the film one. */
-      const float half_fov = cam.fisheye_fov * 0.5f;
-      return (half_fov < float(M_PI_4)) ? tanf(half_fov) : 1.0f;
-    }
-    default:
-      return 1.0f;
   }
 }
 
@@ -347,15 +330,13 @@ void Camera::sync()
     const float fit_xratio = float(render_width) * inst_.scene->r.xasp;
     const float fit_yratio = float(render_height) * inst_.scene->r.yasp;
     const int sensor_fit = BKE_camera_sensor_fit(cam->sensor_fit, fit_xratio, fit_yratio);
-    const float sensor_size = BKE_camera_sensor_size(
-        cam->sensor_fit, cam->sensor_x, cam->sensor_y);
     if (sensor_fit == CAMERA_SENSOR_FIT_HOR) {
-      data.fisheye_sensor.x = sensor_size;
-      data.fisheye_sensor.y = sensor_size * fit_yratio / fit_xratio;
+      data.fisheye_sensor.x = cam->sensor_x;
+      data.fisheye_sensor.y = cam->sensor_x * fit_yratio / fit_xratio;
     }
     else {
-      data.fisheye_sensor.x = sensor_size * fit_xratio / fit_yratio;
-      data.fisheye_sensor.y = sensor_size;
+      data.fisheye_sensor.x = cam->sensor_y * fit_xratio / fit_yratio;
+      data.fisheye_sensor.y = cam->sensor_y;
     }
     is_camera_object_ = true;
   }
@@ -377,7 +358,6 @@ void Camera::sync()
   data.panoramic_view_overscan = this->is_panoramic() ? 1.05f + overscan_ : 1.0f;
   data.panoramic_view_mask = uint32_t(this->is_panoramic() ? panoramic_view_mask_get(data) :
                                                              PanoramicViewBits::FRONT);
-  data.panoramic_front_face_extent = panoramic_front_face_extent_get(data);
   data_.initialized = true;
 
   update_bounds();

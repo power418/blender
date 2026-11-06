@@ -2776,8 +2776,6 @@ static PyObject *BPyInit_idprop_types()
 
   PyModule_AddType(submodule, &BPy_IDArray_Type);
 
-  PyModule_AddType(submodule, &BPy_IDPropertyUIManager_Type);
-
   return submodule;
 }
 

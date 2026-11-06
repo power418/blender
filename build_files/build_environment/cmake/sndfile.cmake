@@ -83,5 +83,4 @@ add_dependencies(
   external_opus
   external_flac
   external_lame
-  external_python
 )

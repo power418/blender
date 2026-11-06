@@ -157,7 +157,6 @@ struct SceneState {
   Object *camera_object = nullptr;
   Camera *camera = nullptr;
   float4x4 view_projection_matrix = float4x4::identity();
-  float3 view_forward{0};
   int2 resolution = int2(0);
 
   eContextObjectMode object_mode = CTX_MODE_OBJECT;
@@ -279,10 +278,12 @@ struct SceneResources {
   Texture dummy_tile_data_tx = {"dummy_tile_data"};
   Texture dummy_tile_array_tx = {"dummy_tile_array"};
 
-  BatchPtr volume_cube_batch;
+  gpu::Batch *volume_cube_batch = nullptr;
 
   ~SceneResources()
   {
+    /* TODO(fclem): Auto destruction. */
+    GPU_BATCH_DISCARD_SAFE(volume_cube_batch);
     if (missing_texture.gpu.texture) {
       GPU_texture_free(missing_texture.gpu.texture);
     }
@@ -476,7 +477,7 @@ class ShadowPass {
 class VolumePass {
   bool active_ = true;
 
-  PassSortable ps_ = {"Volume"};
+  PassMain ps_ = {"Volume"};
   Framebuffer fb_ = {"Volume"};
 
   Texture dummy_shadow_tx_ = {"Volume.Dummy Shadow Tx"};

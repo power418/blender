@@ -2332,9 +2332,10 @@ class CustomDataLayerImplicitSharing : public ImplicitSharingInfo {
   }
 };
 
-const ImplicitSharingInfo *CustomData_make_layer_sharing_info(const eCustomDataType type,
-                                                              const void *data,
-                                                              const int totelem)
+/** Create a #ImplicitSharingInfo that takes ownership of the data. */
+static const ImplicitSharingInfo *make_implicit_sharing_info_for_layer(const eCustomDataType type,
+                                                                       const void *data,
+                                                                       const int totelem)
 {
   return MEM_new<CustomDataLayerImplicitSharing>(__func__, data, totelem, type);
 }
@@ -2358,7 +2359,7 @@ static void ensure_layer_data_is_mutable(CustomDataLayer &layer, const int totel
      * we're still copying from it here. */
     layer.data = copy_layer_data(type, old_data, totelem);
     layer.sharing_info->remove_user_and_delete_if_last();
-    layer.sharing_info = CustomData_make_layer_sharing_info(type, layer.data, totelem);
+    layer.sharing_info = make_implicit_sharing_info_for_layer(type, layer.data, totelem);
   }
 }
 
@@ -2416,7 +2417,7 @@ void CustomData_realloc(CustomData *data,
     /* Take ownership of new array. */
     layer->data = new_layer_data;
     if (layer->data) {
-      layer->sharing_info = CustomData_make_layer_sharing_info(
+      layer->sharing_info = make_implicit_sharing_info_for_layer(
           eCustomDataType(layer->type), layer->data, new_size);
     }
 
@@ -2813,7 +2814,7 @@ static CustomDataLayer *customData_add_layer__internal(
 
   if (new_layer.data != nullptr && new_layer.sharing_info == nullptr) {
     /* Make layer data shareable. */
-    new_layer.sharing_info = CustomData_make_layer_sharing_info(type, new_layer.data, totelem);
+    new_layer.sharing_info = make_implicit_sharing_info_for_layer(type, new_layer.data, totelem);
   }
 
   new_layer.type = type;
@@ -3158,14 +3159,14 @@ void CustomData_copy_layer_type_data(const CustomData *source,
   if (source_layer_index == -1) {
     return;
   }
-  const int destination_layer_index = CustomData_get_layer_index(destination, type);
-  if (destination_layer_index == -1) {
+  const int destinaiton_layer_index = CustomData_get_layer_index(destination, type);
+  if (destinaiton_layer_index == -1) {
     return;
   }
   CustomData_copy_data_layer(source,
                              destination,
                              source_layer_index,
-                             destination_layer_index,
+                             destinaiton_layer_index,
                              source_index,
                              destination_index,
                              count);
@@ -4985,7 +4986,7 @@ void CustomData_blend_read(BlendDataReader *reader, CustomData *data, const int 
             if (layer->data == nullptr) {
               return nullptr;
             }
-            return CustomData_make_layer_sharing_info(
+            return make_implicit_sharing_info_for_layer(
                 eCustomDataType(layer->type), layer->data, count);
           });
       i++;

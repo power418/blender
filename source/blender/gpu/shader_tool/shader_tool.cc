@@ -183,19 +183,7 @@ int main(int argc, char **argv)
 
   if (language == Language::BSL) {
     /* Until the new BSL compiler is fully working, use the legacy one. */
-    if (/* Add non-ported files here. */
-        filename.ends_with("gpu_shader_material_radial_tiling.bsl.hh") ||
-        filename.ends_with("gpu_shader_material_tex_voronoi.bsl.hh") ||
-        /* Need new compiler. */
-        (filename.find("gpu/shaders/") == std::string::npos &&
-         filename.find("draw/intern/shaders/") == std::string::npos &&
-         filename.find("workbench/shaders/") == std::string::npos &&
-         filename.find("overlay/shaders/") == std::string::npos &&
-         filename.find("select/shaders/") == std::string::npos &&
-         filename.find("eevee/shaders/") == std::string::npos &&
-         filename.find("gpencil/shaders/") == std::string::npos &&
-         filename.find("compositor/shaders/") == std::string::npos))
-    {
+    if (/* Add ported files here. */ true) {
       language = Language::BLENDER_GLSL;
     }
   }
@@ -228,6 +216,7 @@ int main(int argc, char **argv)
 
   output_file << result;
 
+  /* TODO(fclem): Don't use regex for that. */
   size_t last_slash = filename.find_last_of('/');
   std::string name = (last_slash == std::string::npos) ? filename :
                                                          filename.substr(last_slash + 1);
