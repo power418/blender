@@ -31,7 +31,19 @@ int CUDADeviceQueue::num_concurrent_states(const size_t state_size) const
 {
   const int max_num_threads = cuda_device_->get_num_multiprocessors() *
                               cuda_device_->get_max_num_threads_per_multiprocessor();
-  int num_states = max(max_num_threads, 65536) * 16;
+
+  /* On laptops and GPUs with 4GB or less VRAM (such as RTX 3050 Laptop), limit the default
+   * multiplier from 16 to 4. This reduces concurrent integrator states from 1,048,576 to 262,144,
+   * saving ~75% VRAM and avoiding severe power transient spikes (voltage droop) and TDR hangs. */
+  int multiplier = 16;
+  size_t total_mem = 0, free_mem = 0;
+  cuda_device_->get_device_memory_info(total_mem, free_mem);
+  if (total_mem != 0 &&
+      total_mem <= (4ULL * 1024 * 1024 * 1024 + 512 * 1024 * 1024))
+  {
+    multiplier = 4;
+  }
+  int num_states = max(max_num_threads, 65536) * multiplier;
 
   const char *factor_str = getenv("CYCLES_CONCURRENT_STATES_FACTOR");
   if (factor_str) {

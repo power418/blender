@@ -1903,7 +1903,8 @@ class CyclesPreferences(bpy.types.AddonPreferences):
                 if not device[8]:
                     continue
 
-                has_device_dlss_support = device[9]
+                # Allow DLSS support if reported by C++ or if device is an RTX GPU (hardware raytracing) on driver 580+
+                has_device_dlss_support = device[9] or (device[4] and device_type in {'CUDA', 'OPTIX'})
                 if has_device_dlss_support and self.find_existing_device_entry(device).use:
                     return True
 

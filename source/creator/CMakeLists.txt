@@ -2106,12 +2106,12 @@ if(WIN32)
     if(CMAKE_BUILD_TYPE)
       set_property(
         TARGET blender APPEND_STRING PROPERTY LINK_FLAGS_RELEASE
-        " /PDBSTRIPPED:${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_BUILD_TYPE}/blender_public.pdb"
+        " \"/PDBSTRIPPED:${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_BUILD_TYPE}/blender_public.pdb\""
       )
     else()
       set_property(
         TARGET blender APPEND_STRING PROPERTY LINK_FLAGS_RELEASE
-        " /PDBSTRIPPED:${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/blender_public.pdb"
+        " \"/PDBSTRIPPED:${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/blender_public.pdb\""
       )
     endif()
   endif()

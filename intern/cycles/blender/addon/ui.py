@@ -279,7 +279,7 @@ class CYCLES_RENDER_PT_sampling_viewport_denoise(CyclesButtonsPanel, Panel):
             else:
                 col.label(text=rpt_("Requires NVIDIA GPU with compute capability %s") % "7.5",
                           icon='INFO', translate=False)
-                col.label(text=rpt_("and NVIDIA driver version %s or newer") % "590",
+                col.label(text=rpt_("and NVIDIA driver version %s or newer") % "580",
                           icon='BLANK1', translate=False)
             return
 

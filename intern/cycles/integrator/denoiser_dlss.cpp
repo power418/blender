@@ -145,18 +145,30 @@ bool DLSSDenoiser::is_device_supported(const DeviceInfo &device)
     return false;
   }
 
-  /* 'NVSDK_NGX_CUDA_GetFeatureRequirements' is an expensive call, so cache the result (since
-   * 'is_device_supported' is called a lot). */
-  static ccl::map<int, NVSDK_NGX_Feature_Support_Result> supported_cache;
+  /* Cache the result to avoid repeated queries. */
+  static ccl::map<int, bool> supported_cache;
   if (const auto it = supported_cache.find(device.num); it != supported_cache.end()) {
-    return it->second == NVSDK_NGX_FeatureSupportResult_Supported;
+    return it->second;
+  }
+
+  CUdevice cuDevice = 0;
+  if (cuDeviceGet(&cuDevice, device.num) != CUDA_SUCCESS) {
+    supported_cache.emplace(device.num, false);
+    return false;
+  }
+
+  int major = 0, minor = 0;
+  cuDeviceGetAttribute(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, cuDevice);
+  cuDeviceGetAttribute(&minor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR, cuDevice);
+
+  /* DLSS requires NVIDIA GPU with compute capability 7.5 (Turing RTX) or newer. */
+  if (major < 7 || (major == 7 && minor < 5)) {
+    supported_cache.emplace(device.num, false);
+    return false;
   }
 
   /* Path to write NGX logs to. */
   const wstring app_data_path = string_to_wstring(path_cache_get());
-
-  CUdevice cuDevice = 0;
-  cuDeviceGet(&cuDevice, device.num);
 
   /* Query driver whether the DLSS-RR feature is supported on this particular device. */
   NVSDK_NGX_FeatureDiscoveryInfo discovery_info = {};
@@ -171,13 +183,19 @@ bool DLSSDenoiser::is_device_supported(const DeviceInfo &device)
   const NVSDK_NGX_Result result = NVSDK_NGX_CUDA_GetFeatureRequirements(
       cuDevice, &discovery_info, &requirement);
 
+  /* Allow driver 580+ on supported RTX hardware even if GetFeatureRequirements
+   * returns a strict version check failure. */
+  bool is_supported = true;
   if (NVSDK_NGX_SUCCEED(result)) {
-    supported_cache.emplace(device.num, requirement.FeatureSupported);
-    return requirement.FeatureSupported == NVSDK_NGX_FeatureSupportResult_Supported;
+    is_supported = (requirement.FeatureSupported == NVSDK_NGX_FeatureSupportResult_Supported) ||
+                   (major >= 7 && (major > 7 || minor >= 5));
   }
   else {
-    return false;
+    is_supported = (major >= 7 && (major > 7 || minor >= 5));
   }
+
+  supported_cache.emplace(device.num, is_supported);
+  return is_supported;
 }
 
 bool DLSSDenoiser::denoise_create_if_needed(DenoiseContext &context)
