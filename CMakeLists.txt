@@ -313,6 +313,8 @@ option(WITH_OPENIMAGEDENOISE "Enable OpenImageDenoise (Cycles denoiser and the c
 
 option(WITH_DLSS "Enable NVIDIA DLSS Ray Reconstruction support" OFF)
 
+option(WITH_DLSS "Enable NVIDIA DLSS Ray Reconstruction support" OFF)
+
 option(WITH_OPENSUBDIV "Enable OpenSubdiv for surface subdivision" ON)
 
 option(WITH_POTRACE "Enable features relying on Potrace" ON)
