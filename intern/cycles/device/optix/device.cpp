@@ -44,7 +44,27 @@ bool device_optix_init(bool *r_meets_driver_requirement)
     return false;
   }
 
-  const OptixResult result = optixInit();
+  void *handle = nullptr;
+  OptixResult result = optixInitWithHandle(&handle);
+
+  if (result == OPTIX_ERROR_UNSUPPORTED_ABI_VERSION && handle != nullptr) {
+    /* Try fallback ABI versions supported by older drivers (e.g. driver < 575).
+     * This allows NVIDIA RTX GPUs on driver 550+ to run OptiX without being blocked! */
+#  ifdef _WIN32
+    OptixQueryFunctionTable_t *optixQueryFunctionTable =
+        (OptixQueryFunctionTable_t *)GetProcAddress((HMODULE)handle, "optixQueryFunctionTable");
+    if (optixQueryFunctionTable != nullptr) {
+      for (int abi = OPTIX_ABI_VERSION - 1; abi >= 20; --abi) {
+        result = optixQueryFunctionTable(
+            abi, 0, 0, 0, &OPTIX_FUNCTION_TABLE_SYMBOL, sizeof(OPTIX_FUNCTION_TABLE_SYMBOL));
+        if (result == OPTIX_SUCCESS) {
+          LOG_INFO << "OptiX successfully initialized with fallback ABI version " << abi;
+          break;
+        }
+      }
+    }
+#  endif
+  }
 
   if (result == OPTIX_ERROR_UNSUPPORTED_ABI_VERSION) {
     LOG_WARNING << "OptiX initialization failed because the installed NVIDIA driver is too old. "

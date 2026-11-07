@@ -1140,10 +1140,11 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
 
   float pixel_scale;
   if (render_pass_sample_count == PASS_UNUSED) {
-    pixel_scale = 1.0f / num_samples;
+    pixel_scale = (num_samples > 0) ? (1.0f / num_samples) : 0.0f;
   }
   else {
-    pixel_scale = 1.0f / __float_as_uint(buffer[render_pass_sample_count]);
+    const uint sample_count = __float_as_uint(buffer[render_pass_sample_count]);
+    pixel_scale = (sample_count > 0) ? (1.0f / sample_count) : 0.0f;
   }
 
   /* Albedo pass. */
@@ -1223,87 +1224,118 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
 
   float pixel_scale;
   if (render_pass_sample_count == PASS_UNUSED) {
-    pixel_scale = 1.0f / num_samples;
+    pixel_scale = (num_samples > 0) ? (1.0f / num_samples) : 0.0f;
   }
   else {
-    pixel_scale = 1.0f / __float_as_uint(buffer[render_pass_sample_count]);
+    const uint sample_count = __float_as_uint(buffer[render_pass_sample_count]);
+    pixel_scale = (sample_count > 0) ? (1.0f / sample_count) : 0.0f;
   }
 
   /* Depth pass. */
+  float depth_value = 0.0f;
   if (render_pass_depth != PASS_UNUSED) {
     const ccl_global float *depth_in = buffer + render_pass_depth;
-
-    const float depth_value = depth_in[0] * pixel_scale;
-
-    surf2Dwrite(depth_value, depth_surface, x * sizeof(float), y);
+    const float d = depth_in[0] * pixel_scale;
+    if (isfinite(d) && d > 0.0f) {
+      depth_value = d;
+    }
   }
+  surf2Dwrite(depth_value, depth_surface, x * sizeof(float), y);
 
   /* Diffuse albedo pass. */
+  float4 albedo_value;
+  albedo_value.x = 0.5f;
+  albedo_value.y = 0.5f;
+  albedo_value.z = 0.5f;
+  albedo_value.w = 1.0f;
   if (render_pass_albedo != PASS_UNUSED) {
     const ccl_global float *albedo_in = buffer + render_pass_albedo;
-
-    float4 albedo_value;
-    albedo_value.x = albedo_in[0] * pixel_scale;
-    albedo_value.y = albedo_in[1] * pixel_scale;
-    albedo_value.z = albedo_in[2] * pixel_scale;
-    albedo_value.w = 1.0;
-
-    /* Tonemap the albedo with simple reinhard operator. */
-    albedo_value.x = clamp(albedo_value.x / (1.0f + albedo_value.x), 0.0f, 1.0f);
-    albedo_value.y = clamp(albedo_value.y / (1.0f + albedo_value.y), 0.0f, 1.0f);
-    albedo_value.z = clamp(albedo_value.z / (1.0f + albedo_value.z), 0.0f, 1.0f);
-
-    surf2Dwrite(albedo_value, albedo_surface, x * sizeof(float4), y);
+    float ax = albedo_in[0] * pixel_scale;
+    float ay = albedo_in[1] * pixel_scale;
+    float az = albedo_in[2] * pixel_scale;
+    if (isfinite(ax) && isfinite(ay) && isfinite(az)) {
+      /* Tonemap the albedo with simple reinhard operator. */
+      albedo_value.x = clamp(ax / (1.0f + ax), 0.0f, 1.0f);
+      albedo_value.y = clamp(ay / (1.0f + ay), 0.0f, 1.0f);
+      albedo_value.z = clamp(az / (1.0f + az), 0.0f, 1.0f);
+    }
   }
+  surf2Dwrite(albedo_value, albedo_surface, x * sizeof(float4), y);
 
   /* Specular albedo pass. */
+  float4 specular_albedo_value;
+  specular_albedo_value.x = 0.0f;
+  specular_albedo_value.y = 0.0f;
+  specular_albedo_value.z = 0.0f;
+  specular_albedo_value.w = 1.0f;
   if (render_pass_specular_albedo != PASS_UNUSED) {
     const ccl_global float *albedo_in = buffer + render_pass_specular_albedo;
-
-    float4 specular_albedo_value;
-    specular_albedo_value.x = albedo_in[0] * pixel_scale;
-    specular_albedo_value.y = albedo_in[1] * pixel_scale;
-    specular_albedo_value.z = albedo_in[2] * pixel_scale;
-    specular_albedo_value.w = 1.0;
-
-    surf2Dwrite(specular_albedo_value, specular_albedo_surface, x * sizeof(float4), y);
+    float sx = albedo_in[0] * pixel_scale;
+    float sy = albedo_in[1] * pixel_scale;
+    float sz = albedo_in[2] * pixel_scale;
+    if (isfinite(sx) && isfinite(sy) && isfinite(sz)) {
+      specular_albedo_value.x = clamp(sx, 0.0f, 1.0f);
+      specular_albedo_value.y = clamp(sy, 0.0f, 1.0f);
+      specular_albedo_value.z = clamp(sz, 0.0f, 1.0f);
+    }
   }
+  surf2Dwrite(specular_albedo_value, specular_albedo_surface, x * sizeof(float4), y);
 
   /* Normal and roughness pass. */
-  if (render_pass_normal != PASS_UNUSED && render_pass_roughness != PASS_UNUSED) {
+  float4 normal_roughness_value;
+  normal_roughness_value.x = 0.0f;
+  normal_roughness_value.y = 0.0f;
+  normal_roughness_value.z = 1.0f;
+  normal_roughness_value.w = 0.5f;
+  if (render_pass_normal != PASS_UNUSED) {
     const ccl_global float *normal_in = buffer + render_pass_normal;
-    const ccl_global float *roughness_in = buffer + render_pass_roughness;
-
-    float4 normal_roughness_value;
-    normal_roughness_value.x = normal_in[0] * pixel_scale;
-    normal_roughness_value.y = normal_in[1] * pixel_scale;
-    normal_roughness_value.z = normal_in[2] * pixel_scale;
-    normal_roughness_value.w = roughness_in[0] * pixel_scale;
-
-    surf2Dwrite(normal_roughness_value, normal_roughness_surface, x * sizeof(float4), y);
+    float nx = normal_in[0] * pixel_scale;
+    float ny = normal_in[1] * pixel_scale;
+    float nz = normal_in[2] * pixel_scale;
+    if (isfinite(nx) && isfinite(ny) && isfinite(nz)) {
+      normal_roughness_value.x = nx;
+      normal_roughness_value.y = ny;
+      normal_roughness_value.z = nz;
+    }
   }
+  if (render_pass_roughness != PASS_UNUSED) {
+    const ccl_global float *roughness_in = buffer + render_pass_roughness;
+    float r = roughness_in[0] * pixel_scale;
+    if (isfinite(r)) {
+      normal_roughness_value.w = clamp(r, 0.0f, 1.0f);
+    }
+  }
+  surf2Dwrite(normal_roughness_value, normal_roughness_surface, x * sizeof(float4), y);
 
   /* Motion pass. */
+  float2 motion_value;
+  motion_value.x = 0.0f;
+  motion_value.y = 0.0f;
   if (render_pass_motion != PASS_UNUSED) {
     const ccl_global float *motion_in = buffer + render_pass_motion;
-
-    float2 motion_value;
-    motion_value.x = motion_in[0] * pixel_scale;
-    motion_value.y = motion_in[1] * pixel_scale;
-
-    surf2Dwrite(motion_value, motion_surface, x * sizeof(float2), y);
+    float mx = motion_in[0] * pixel_scale;
+    float my = motion_in[1] * pixel_scale;
+    if (isfinite(mx) && isfinite(my)) {
+      motion_value.x = mx;
+      motion_value.y = my;
+    }
   }
+  surf2Dwrite(motion_value, motion_surface, x * sizeof(float2), y);
 
   /* Specular motion pass. */
+  float2 specular_motion_value;
+  specular_motion_value.x = 0.0f;
+  specular_motion_value.y = 0.0f;
   if (render_pass_specular_motion != PASS_UNUSED) {
     const ccl_global float *motion_in = buffer + render_pass_specular_motion;
-
-    float2 motion_value;
-    motion_value.x = motion_in[0] * pixel_scale;
-    motion_value.y = motion_in[1] * pixel_scale;
-
-    surf2Dwrite(motion_value, specular_motion_surface, x * sizeof(float2), y);
+    float mx = motion_in[0] * pixel_scale;
+    float my = motion_in[1] * pixel_scale;
+    if (isfinite(mx) && isfinite(my)) {
+      specular_motion_value.x = mx;
+      specular_motion_value.y = my;
+    }
   }
+  surf2Dwrite(specular_motion_value, specular_motion_surface, x * sizeof(float2), y);
 #endif
 }
 ccl_gpu_kernel_postfix
@@ -1399,7 +1431,7 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
     const ccl_global float *noisy_pixel = buffer + pass_noisy;
     denoised_pixel[3] = noisy_pixel[3];
 
-    if (pass_sample_count != PASS_UNUSED && upscale_factor != 1.0f) {
+    if (pass_sample_count != PASS_UNUSED && upscale_factor != 1.0f && pixel_scale > 0.0f) {
       denoised_pixel[3] /= pixel_scale;
     }
   }
@@ -1482,7 +1514,7 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
     const ccl_global float *noisy_pixel = buffer + pass_noisy;
     denoised_pixel[3] = noisy_pixel[3];
 
-    if (pass_sample_count != PASS_UNUSED && upscale_factor != 1.0f) {
+    if (pass_sample_count != PASS_UNUSED && upscale_factor != 1.0f && pixel_scale > 0.0f) {
       denoised_pixel[3] /= pixel_scale;
     }
   }

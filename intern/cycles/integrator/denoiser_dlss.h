@@ -59,6 +59,7 @@ class DLSSDenoiser : public DenoiserGPU {
   int last_width_ = 0;
   int last_height_ = 0;
   float last_upscale_factor_ = 0.0f;
+  bool reset_history_ = true;
 };
 
 CCL_NAMESPACE_END

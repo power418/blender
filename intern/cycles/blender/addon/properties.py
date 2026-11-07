@@ -1840,8 +1840,8 @@ class CyclesPreferences(bpy.types.AddonPreferences):
                 if device[1] != compute_device_type:
                     continue
 
-                # Skip devices that do not meet the driver requirement.
-                if not device[8]:
+                # Skip devices that do not meet the driver requirement (except CUDA/OPTIX).
+                if not device[8] and device_type not in {'CUDA', 'OPTIX'}:
                     continue
 
                 for dev in self.devices:
@@ -1856,8 +1856,8 @@ class CyclesPreferences(bpy.types.AddonPreferences):
                 if device[1] == compute_device_type:
                     continue
 
-                # Skip devices that do not meet the driver requirement.
-                if not device[8]:
+                # Skip devices that do not meet the driver requirement (except CUDA/OPTIX).
+                if not device[8] and device_type not in {'CUDA', 'OPTIX'}:
                     continue
 
                 for dev in self.devices:
@@ -1879,8 +1879,8 @@ class CyclesPreferences(bpy.types.AddonPreferences):
                 if device_type == 'CPU':
                     continue
 
-                # Skip devices that do not meet the driver requirement.
-                if not device[8]:
+                # Skip devices that do not meet the driver requirement (except CUDA/OPTIX).
+                if not device[8] and device_type not in {'CUDA', 'OPTIX'}:
                     continue
 
                 has_device_oidn_support = device[5]
@@ -1899,8 +1899,8 @@ class CyclesPreferences(bpy.types.AddonPreferences):
                 if device_type == 'CPU':
                     continue
 
-                # Skip devices that do not meet the driver requirement.
-                if not device[8]:
+                # Skip devices that do not meet the driver requirement (except CUDA/OPTIX).
+                if not device[8] and device_type not in {'CUDA', 'OPTIX'}:
                     continue
 
                 # Allow DLSS support if reported by C++ or if device is an RTX GPU (hardware raytracing) on driver 580+
@@ -1920,8 +1920,8 @@ class CyclesPreferences(bpy.types.AddonPreferences):
                 if device_type == 'CPU':
                     continue
 
-                # Skip devices that do not meet the driver requirement.
-                if not device[8]:
+                # Skip devices that do not meet the driver requirement (except CUDA/OPTIX).
+                if not device[8] and device_type not in {'CUDA', 'OPTIX'}:
                     continue
 
                 has_device_optixdenoiser_support = device[6]
@@ -1950,7 +1950,7 @@ class CyclesPreferences(bpy.types.AddonPreferences):
                 found_device = True
                 break
 
-        optix_minimum_driver_version = "575"
+        optix_minimum_driver_version = "535"
         hip_minimum_adrenalin_driver_version = "24.9.1"
         hip_minimum_pro_driver_version = "24.Q4"
         hip_minimum_linux_driver_version = "24.30"
@@ -2042,7 +2042,10 @@ class CyclesPreferences(bpy.types.AddonPreferences):
             col = box.column()
             row = col.row()
 
-            if not device.meets_driver_requirement:
+            # Never disable NVIDIA RTX or CUDA devices due to driver versioning
+            if device.type in {'OPTIX', 'CUDA'}:
+                row.prop(device, "use", text=name, translate=False)
+            elif not device.meets_driver_requirement:
                 import sys
                 row.active = False
                 name += rpt_(" (Disabled)")

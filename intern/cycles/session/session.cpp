@@ -231,6 +231,10 @@ void Session::run_main_render_loop()
 
     progress.set_update();
 
+    if (render_scheduler_.is_denoiser_interactive()) {
+      std::this_thread::yield();
+    }
+
     if (did_cancel) {
       break;
     }

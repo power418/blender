@@ -3576,21 +3576,10 @@ class WM_MT_splash(Menu):
         col2 = split.column()
         col2_title = col2.row()
 
-        # Show project files if a project is active, but also other recent files
-        # if there is more space available.
-        recent_rows = 5
-        found_project = col2.template_recent_files(rows=recent_rows,
-                                                   filter='PROJECT', project_ratio=1.0)
-        col2_other_title = col2.row()
-        other_rows = recent_rows - 1 if found_project else recent_rows
-        found_other = col2.template_recent_files(rows=other_rows,
-                                                 filter='OTHER', project_ratio=1.0)
-        found_recent = found_project + found_other
+        found_recent = col2.template_recent_files(rows=5)
 
         if found_recent:
-            col2_title.label(text="Project Files" if found_project else "Recent Files")
-            if found_project and found_other:
-                col2_other_title.label(text="Other Recent Files")
+            col2_title.label(text="Recent Files")
             col_more = col2.column()
             col_more.operator_context = 'INVOKE_DEFAULT'
             more_props = col_more.operator("wm.search_single_menu", text="More...", icon='VIEWZOOM')

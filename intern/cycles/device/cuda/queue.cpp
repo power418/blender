@@ -18,13 +18,21 @@ CUDADeviceQueue::CUDADeviceQueue(CUDADevice *device)
     : DeviceQueue(device), cuda_device_(device), cuda_stream_(nullptr)
 {
   const CUDAContextScope scope(cuda_device_);
-  cuda_device_assert(cuda_device_, cuStreamCreate(&cuda_stream_, CU_STREAM_NON_BLOCKING));
+  const CUresult result = cuStreamCreate(&cuda_stream_, CU_STREAM_NON_BLOCKING);
+  if (result != CUDA_SUCCESS) {
+    LOG_WARNING << "Failed to create non-blocking CUDA stream (" << cuewErrorString(result)
+                << "), falling back to default stream.";
+    cuda_stream_ = nullptr;
+  }
 }
 
 CUDADeviceQueue::~CUDADeviceQueue()
 {
-  const CUDAContextScope scope(cuda_device_);
-  cuStreamDestroy(cuda_stream_);
+  if (cuda_stream_ != nullptr) {
+    const CUDAContextScope scope(cuda_device_);
+    cuStreamDestroy(cuda_stream_);
+    cuda_stream_ = nullptr;
+  }
 }
 
 int CUDADeviceQueue::num_concurrent_states(const size_t state_size) const

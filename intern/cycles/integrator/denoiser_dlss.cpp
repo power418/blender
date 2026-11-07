@@ -48,13 +48,18 @@ void DLSSDenoiser::CUDATexture::init(Device *device, int width, int height, int 
 }
 void DLSSDenoiser::CUDATexture::destroy()
 {
-  cuSurfObjectDestroy((CUsurfObject)surface_handle);
-  surface_handle = 0;
-  cuTexObjectDestroy((CUtexObject)texture_handle);
-  texture_handle = 0;
-
-  cuArrayDestroy((CUarray)array);
-  array = 0;
+  if (surface_handle != 0) {
+    cuSurfObjectDestroy((CUsurfObject)surface_handle);
+    surface_handle = 0;
+  }
+  if (texture_handle != 0) {
+    cuTexObjectDestroy((CUtexObject)texture_handle);
+    texture_handle = 0;
+  }
+  if (array != 0) {
+    cuArrayDestroy((CUarray)array);
+    array = 0;
+  }
 }
 
 DLSSDenoiser::DLSSDenoiser(Device *denoiser_device, const DenoiseParams &params)
@@ -66,7 +71,9 @@ DLSSDenoiser::DLSSDenoiser(Device *denoiser_device, const DenoiseParams &params)
   /* Path to optionally search for features, in addition to the executable directory and driver. */
   const wstring app_path = string_to_wstring(path_get());
   /* Path to write NGX logs to. */
-  const wstring app_data_path = string_to_wstring(path_cache_get());
+  const string cache_path = path_cache_get();
+  path_create_directories(cache_path);
+  const wstring app_data_path = string_to_wstring(cache_path);
 
   const wchar_t *const app_paths[] = {app_path.c_str()};
 
@@ -101,10 +108,10 @@ DLSSDenoiser::DLSSDenoiser(Device *denoiser_device, const DenoiseParams &params)
   if (result == NVSDK_NGX_Result_FAIL_FeatureNotSupported) {
     delete ngx_device_;
     ngx_device_ = nullptr;
-    set_error("Failed to load NGX driver");
+    set_error(string_printf("Failed to load NGX driver (0x%X)", (unsigned int)result));
   }
   else if (NVSDK_NGX_FAILED(result)) {
-    set_error("Failed to initialize NGX driver");
+    set_error(string_printf("Failed to initialize NGX driver (0x%X)", (unsigned int)result));
   }
 }
 
@@ -284,7 +291,7 @@ bool DLSSDenoiser::denoise_create_if_needed(DenoiseContext &context)
   NVSDK_NGX_CUDA_DestroyParameters(params);
 
   if (NVSDK_NGX_FAILED(result)) {
-    set_error("Failed to create DLSS instance");
+    set_error(string_printf("Failed to create DLSS instance (0x%X)", (unsigned int)result));
     return false;
   }
 
@@ -310,6 +317,7 @@ bool DLSSDenoiser::denoise_create_if_needed(DenoiseContext &context)
   last_width_ = context.denoised_buffer_params.width;
   last_height_ = context.denoised_buffer_params.height;
   last_upscale_factor_ = context.denoise_params.upscale_factor;
+  reset_history_ = true;
 
   return !cuda_device->have_error();
 }
@@ -322,8 +330,12 @@ bool DLSSDenoiser::denoise_configure_if_needed(DenoiseContext & /*context*/)
 bool DLSSDenoiser::denoise_filter_color_preprocess(const DenoiseContext &context,
                                                    const DenoisePass &pass)
 {
-  if (pass.type != PASS_COMBINED) {
+  if (pass.type != PASS_COMBINED || context.num_samples <= 0) {
     return true;
+  }
+
+  if (!context.render_buffers || !context.render_buffers->buffer.device_pointer) {
+    return false;
   }
 
   /* Input params (with resolution divider applied). */
@@ -348,8 +360,12 @@ bool DLSSDenoiser::denoise_filter_color_preprocess(const DenoiseContext &context
 bool DLSSDenoiser::denoise_filter_color_postprocess(const DenoiseContext &context,
                                                     const DenoisePass &pass)
 {
-  if (pass.type != PASS_COMBINED) {
+  if (pass.type != PASS_COMBINED || context.num_samples <= 0) {
     return true;
+  }
+
+  if (!context.render_buffers || !context.render_buffers->buffer.device_pointer) {
+    return false;
   }
 
   /* Output params. */
@@ -384,6 +400,14 @@ bool DLSSDenoiser::denoise_filter_color_postprocess(const DenoiseContext &contex
 
 bool DLSSDenoiser::denoise_filter_guiding_preprocess(DenoiseContext &context)
 {
+  if (context.num_samples <= 0) {
+    return true;
+  }
+
+  if (!context.render_buffers || !context.render_buffers->buffer.device_pointer) {
+    return false;
+  }
+
   const BufferParams &buffer_params = context.buffer_params;
 
   const int work_size = buffer_params.width * buffer_params.height;
@@ -425,8 +449,12 @@ bool DLSSDenoiser::denoise_filter_guiding_preprocess(DenoiseContext &context)
 
 bool DLSSDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass &pass)
 {
-  if (pass.type != PASS_COMBINED) {
+  if (pass.type != PASS_COMBINED || context.num_samples <= 0) {
     return true;
+  }
+
+  if (handle_ == nullptr) {
+    return false;
   }
 
   NVSDK_NGX_Parameter *params = nullptr;
@@ -437,10 +465,18 @@ bool DLSSDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass 
   CUDADevice *const cuda_device = static_cast<CUDADevice *>(denoiser_device_);
   const CUDAContextScope scope(cuda_device);
 
-  params->Set(NVSDK_NGX_Parameter_Reset, 0);
+  const float jitter_x = (context.pixel_jitter.x == FLT_MAX || std::isnan(context.pixel_jitter.x)) ?
+                             0.0f :
+                             context.pixel_jitter.x;
+  const float jitter_y = (context.pixel_jitter.y == FLT_MAX || std::isnan(context.pixel_jitter.y)) ?
+                             0.0f :
+                             context.pixel_jitter.y;
 
-  params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, context.pixel_jitter.x);
-  params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, context.pixel_jitter.y);
+  params->Set(NVSDK_NGX_Parameter_Reset, reset_history_ ? 1 : 0);
+  reset_history_ = false;
+
+  params->Set(NVSDK_NGX_Parameter_Jitter_Offset_X, jitter_x);
+  params->Set(NVSDK_NGX_Parameter_Jitter_Offset_Y, jitter_y);
 
   params->Set(NVSDK_NGX_Parameter_Color, &tex_color_.texture_handle);
   params->Set(NVSDK_NGX_Parameter_Depth, &tex_depth_.texture_handle);

@@ -951,9 +951,11 @@ void PathTrace::cancel()
 {
   thread_scoped_lock lock(render_cancel_.mutex);
 
-  /* Only cancel in the middle of rendering when there is at least one sample in the output.
-   * Otherwise interactivity becomes bad. */
-  if (get_num_samples_in_buffer() > 1) {
+  /* Cancel in the middle of rendering when there is at least one sample in the output,
+   * or during interactive denoiser mode (DLSS) so camera navigation never blocks the UI thread. */
+  if (get_num_samples_in_buffer() > 1 ||
+      (denoiser_ && denoiser_->get_params().type == DENOISER_DLSS))
+  {
     render_cancel_.is_requested = true;
   }
 
